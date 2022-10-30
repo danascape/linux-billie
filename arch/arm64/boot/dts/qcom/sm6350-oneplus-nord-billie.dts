@@ -336,6 +336,14 @@
 	status = "disabled";
 };
 
+&gpi_dma0 {
+	status = "okay";
+};
+
+&gpi_dma1 {
+	status = "okay";
+};
+
 &pm6350_gpios {
 	key_vol_down_default: vol-down-default-state {
 		pins = "gpio2";
@@ -348,6 +356,14 @@
 
 &pm6350_resin {
 	linux,code = <KEY_VOLUMEUP>;
+	status = "okay";
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&qupv3_id_1 {
 	status = "okay";
 };
 
