@@ -41,6 +41,15 @@
 		serial1 = &uart1;
 	};
 
+	lcdb_dummy: regulator-lcdb-dummy {
+		compatible = "regulator-fixed";
+		regulator-name = "lcdb_dummy";
+		regulator-min-microvolt = <5500000>;
+		regulator-max-microvolt = <5500000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
 	battery: battery {
 		compatible = "simple-battery";
 
@@ -654,6 +663,10 @@
 		reg = <0>;
 
 		reset-gpios = <&pm6150l_gpios 9 GPIO_ACTIVE_LOW>;
+
+		vddio-supply = <&vreg_l11a>;
+		vsp-supply = <&lcdb_dummy>;
+		vsn-supply = <&lcdb_dummy>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&panel_reset_pin &te_gpio>;
