@@ -79,6 +79,25 @@ config TOUCHSCREEN_HIMAX_IC_HX83112
 		help
 		This enables support for HIMAX CHIPSET of HX83112.
 
+		The HX83112 chip handler also recognises the F revision
+		(IC ID 0x83112F) and registers the SRAM-reload hooks
+		needed for the no-flash variant. To actually drive a
+		no-flash panel, also enable TOUCHSCREEN_HIMAX_NOFLASH.
+
+config TOUCHSCREEN_HIMAX_NOFLASH
+        bool "HIMAX no-flash (zero-flash) operation"
+		depends on TOUCHSCREEN_HIMAX_INCELL
+		help
+		Enable the no-flash boot path. Variants such as HX83112F
+		have no on-chip flash and reload firmware into SRAM on
+		every boot/resume; the IC handler then calls
+		fp_0f_reload_to_active() and friends through g_core_fp.
+
+		This defines HX_ZERO_FLASH internally, which changes
+		several driver-wide behaviours (resume reloads firmware,
+		HX_TP_PROC_GUEST_INFO is disabled, DSRAM_SIZE is set,
+		etc.). Leave disabled for flash-backed Himax panels.
+
 config TOUCHSCREEN_HIMAX_IC_HX83111
         tristate "HIMAX chipset HX83111 function"
 		depends on TOUCHSCREEN_HIMAX_INCELL

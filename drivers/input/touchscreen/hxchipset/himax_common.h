@@ -75,7 +75,9 @@
 /*#define HX_PROTOCOL_A*/
 #define HX_PROTOCOL_B_3PA
 
-/*#define HX_ZERO_FLASH*/
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_NOFLASH)
+#define HX_ZERO_FLASH
+#endif
 
 /*system suspend-chipset power off,
  *oncell chipset need to enable the definition
