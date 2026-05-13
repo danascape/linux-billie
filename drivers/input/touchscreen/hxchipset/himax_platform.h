@@ -23,6 +23,7 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/regmap.h>
+#include <linux/spi/spi.h>
 
 #if defined(CONFIG_HMX_DB)
 	#include <linux/regulator/consumer.h>
@@ -118,6 +119,25 @@ struct himax_i2c_platform_data {
 #endif
 
 };
+
+struct himax_ts_data;
+
+/*
+ * Bus-specific operations that can't be expressed cleanly through
+ * regmap. write_cmd_only sends a single command byte to the IC with
+ * no payload — used by himax_bus_write_command. regmap_raw_write
+ * rejects val_count == 0, so this escape hatch is needed and is
+ * different per bus (I2C: just the byte; SPI: 0xF2 framing prefix).
+ */
+struct himax_bus_ops {
+	const char *name;
+	int (*write_cmd_only)(struct himax_ts_data *ts, uint8_t cmd);
+};
+
+extern const struct himax_bus_ops himax_i2c_bus_ops;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+extern const struct himax_bus_ops himax_spi_bus_ops;
+#endif
 
 extern int himax_bus_read(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry);

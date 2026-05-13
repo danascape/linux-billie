@@ -3,10 +3,23 @@
 #
 
 config TOUCHSCREEN_HIMAX_COMMON
-        tristate "HIMAX chipset i2c touchscreen"
+        tristate "HIMAX chipset touchscreen"
 		depends on TOUCHSCREEN_HIMAX_CHIPSET
+		select REGMAP_I2C
 		help
-		This enables support for HIMAX CHIPSET over I2C based touchscreens.
+		This enables support for HIMAX CHIPSET touchscreens. The I2C
+		bus is always supported; SPI is enabled separately via
+		TOUCHSCREEN_HIMAX_SPI.
+
+config TOUCHSCREEN_HIMAX_SPI
+        bool "HIMAX chipset SPI bus support"
+		depends on TOUCHSCREEN_HIMAX_COMMON && SPI_MASTER
+		select REGMAP_SPI
+		help
+		This enables the SPI transport in the HIMAX common driver
+		(in addition to the always-on I2C transport). Required for
+		HIMAX no-flash variants such as HX83112F that ship on
+		SPI-attached panels.
 
 choice
 	prompt "HIMAX touch IC types"

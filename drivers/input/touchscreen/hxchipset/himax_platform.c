@@ -43,6 +43,114 @@ static const struct regmap_config himax_i2c_regmap_config = {
 	.max_register = 0xff,
 };
 
+static int himax_i2c_write_cmd_only(struct himax_ts_data *ts, uint8_t cmd)
+{
+	int ret = i2c_master_send(ts->client, &cmd, 1);
+
+	return (ret == 1) ? 0 : -EIO;
+}
+
+const struct himax_bus_ops himax_i2c_bus_ops = {
+	.name = "i2c",
+	.write_cmd_only = himax_i2c_write_cmd_only,
+};
+EXPORT_SYMBOL(himax_i2c_bus_ops);
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+/*
+ * The Himax SPI framing prepends one of two opcode bytes to every
+ * transfer: 0xF3 for reads (followed by the IC register and a pad
+ * byte, then the read data is clocked back on MISO), 0xF2 for
+ * writes (followed by the IC register and the payload). The kernel
+ * regmap_init_spi() default doesn't support that envelope, so we
+ * supply a custom regmap_bus.
+ */
+static int himax_spi_regmap_read(void *context, const void *reg, size_t reg_size,
+		void *val, size_t val_size)
+{
+	struct spi_device *spi = context;
+	uint8_t cmd[3];
+	struct spi_transfer xfer[2] = {};
+	struct spi_message msg;
+
+	if (reg_size != 1)
+		return -EINVAL;
+
+	cmd[0] = 0xF3;
+	cmd[1] = *(const uint8_t *)reg;
+	cmd[2] = 0x00;
+
+	xfer[0].tx_buf = cmd;
+	xfer[0].len = 3;
+	xfer[1].rx_buf = val;
+	xfer[1].len = val_size;
+
+	spi_message_init(&msg);
+	spi_message_add_tail(&xfer[0], &msg);
+	spi_message_add_tail(&xfer[1], &msg);
+
+	return spi_sync(spi, &msg);
+}
+
+static int himax_spi_regmap_gather_write(void *context, const void *reg,
+		size_t reg_size, const void *val, size_t val_size)
+{
+	struct spi_device *spi = context;
+	uint8_t *buf;
+	int ret;
+
+	if (reg_size != 1)
+		return -EINVAL;
+
+	buf = kmalloc(2 + val_size, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	buf[0] = 0xF2;
+	buf[1] = *(const uint8_t *)reg;
+	memcpy(buf + 2, val, val_size);
+
+	ret = spi_write(spi, buf, 2 + val_size);
+	kfree(buf);
+	return ret;
+}
+
+static int himax_spi_regmap_write(void *context, const void *data, size_t count)
+{
+	if (count < 1)
+		return -EINVAL;
+
+	return himax_spi_regmap_gather_write(context, data, 1,
+			(const uint8_t *)data + 1, count - 1);
+}
+
+static const struct regmap_bus himax_spi_regmap_bus = {
+	.read = himax_spi_regmap_read,
+	.write = himax_spi_regmap_write,
+	.gather_write = himax_spi_regmap_gather_write,
+};
+
+static const struct regmap_config himax_spi_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.cache_type = REGCACHE_NONE,
+	.max_register = 0xff,
+};
+
+static int himax_spi_write_cmd_only(struct himax_ts_data *ts, uint8_t cmd)
+{
+	uint8_t buf[2] = { 0xF2, cmd };
+
+	return spi_write(ts->spi, buf, sizeof(buf));
+}
+
+const struct himax_bus_ops himax_spi_bus_ops = {
+	.name = "spi",
+	.write_cmd_only = himax_spi_write_cmd_only,
+};
+EXPORT_SYMBOL(himax_spi_bus_ops);
+#endif /* CONFIG_TOUCHSCREEN_HIMAX_SPI */
+
 #if defined(HX_CONFIG_DRM)
 struct drm_panel *active_panel;
 
@@ -196,7 +304,7 @@ int himax_parse_dt(struct himax_ts_data *ts,
 	int rc, coords_size = 0;
 	uint32_t coords[4] = {0};
 	struct property *prop;
-	struct device_node *dt = private_ts->client->dev.of_node;
+	struct device_node *dt = private_ts->dev->of_node;
 	u32 data = 0;
 	int ret = 0;
 
@@ -322,22 +430,17 @@ EXPORT_SYMBOL(himax_bus_read);
 int himax_bus_write(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry)
 {
-	struct i2c_client *client = private_ts->client;
 	int retry, ret = -EIO;
 
 	mutex_lock(&private_ts->rw_lock);
 
 	for (retry = 0; retry < toRetry; retry++) {
-		if (length == 0) {
-			/* Command-only poke: regmap_raw_write rejects
-			 * val_count == 0, so issue the byte directly.
-			 */
-			ret = i2c_master_send(client, &command, 1);
-			ret = (ret == 1) ? 0 : -EIO;
-		} else {
+		if (length == 0)
+			ret = private_ts->bus_ops->write_cmd_only(private_ts,
+					command);
+		else
 			ret = regmap_raw_write(private_ts->regmap, command,
 					data, length);
-		}
 		if (!ret)
 			break;
 	}
@@ -364,7 +467,7 @@ void himax_int_enable(int enable)
 {
 	struct himax_ts_data *ts = private_ts;
 	unsigned long irqflags = 0;
-	int irqnum = ts->client->irq;
+	int irqnum = ts->hx_irq;
 
 	spin_lock_irqsave(&ts->irq_lock, irqflags);
 	I("%s: Entering!\n", __func__);
@@ -400,9 +503,9 @@ uint8_t himax_int_gpio_read(int pinnum)
 static int himax_regulator_configure(struct himax_i2c_platform_data *pdata)
 {
 	int retval;
-	struct i2c_client *client = private_ts->client;
+	struct device *dev = private_ts->dev;
 
-	pdata->vcc_dig = regulator_get(&client->dev, "vdd");
+	pdata->vcc_dig = regulator_get(dev, "vdd");
 
 	if (IS_ERR(pdata->vcc_dig)) {
 		E("%s: Failed to get regulator vdd\n",
@@ -411,7 +514,7 @@ static int himax_regulator_configure(struct himax_i2c_platform_data *pdata)
 		return retval;
 	}
 
-	pdata->vcc_ana = regulator_get(&client->dev, "avdd");
+	pdata->vcc_ana = regulator_get(dev, "avdd");
 
 	if (IS_ERR(pdata->vcc_ana)) {
 		E("%s: Failed to get regulator avdd\n",
@@ -471,8 +574,6 @@ static int himax_power_on(struct himax_i2c_platform_data *pdata, bool on)
 int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
 {
 	int error;
-	struct i2c_client *client = private_ts->client;
-
 
 	error = himax_regulator_configure(pdata);
 
@@ -527,8 +628,7 @@ int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
 			goto err_set_gpio_irq;
 		}
 
-		client->irq = gpio_to_irq(pdata->gpio_irq);
-		private_ts->hx_irq = client->irq;
+		private_ts->hx_irq = gpio_to_irq(pdata->gpio_irq);
 	} else {
 		E("irq gpio not provided\n");
 		goto err_req_irq_gpio;
@@ -574,7 +674,6 @@ err_regulator_not_on:
 int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
 {
 	int error = 0;
-	struct i2c_client *client = private_ts->client;
 #if defined(HX_RST_PIN_FUNC)
 
 	if (pdata->gpio_reset >= 0) {
@@ -664,8 +763,7 @@ int himax_gpio_power_config(struct himax_i2c_platform_data *pdata)
 			goto err_gpio_irq_set_input;
 		}
 
-		client->irq = gpio_to_irq(pdata->gpio_irq);
-		private_ts->hx_irq = client->irq;
+		private_ts->hx_irq = gpio_to_irq(pdata->gpio_irq);
 	} else {
 		E("irq gpio not provided\n");
 		goto err_gpio_irq_req;
@@ -763,7 +861,7 @@ int himax_ts_pinctrl_init(struct himax_ts_data *ts)
 	ts->ts_pinctrl = devm_pinctrl_get(ts->dev);
 	if (IS_ERR_OR_NULL(ts->ts_pinctrl)) {
 		retval = PTR_ERR(ts->ts_pinctrl);
-		dev_dbg(&ts->client->dev, "Target does not use pinctrl %d\n",
+		dev_dbg(ts->dev, "Target does not use pinctrl %d\n",
 		retval);
 		goto err_pinctrl_get;
 	}
@@ -853,19 +951,19 @@ static int himax_int_register_trigger(void)
 {
 	int ret = 0;
 	struct himax_ts_data *ts = private_ts;
-	struct i2c_client *client = private_ts->client;
+	const char *name = dev_name(ts->dev);
 
 	if (ic_data->HX_INT_IS_EDGE) {
 		I("%s edge triiger falling\n ", __func__);
-		ret = request_threaded_irq(client->irq, NULL, himax_ts_thread,
+		ret = request_threaded_irq(ts->hx_irq, NULL, himax_ts_thread,
 			IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
-			client->name, ts);
+			name, ts);
 	}
 
 	else {
 		I("%s level trigger low\n ", __func__);
-		ret = request_threaded_irq(client->irq, NULL, himax_ts_thread,
-			IRQF_TRIGGER_LOW | IRQF_ONESHOT, client->name, ts);
+		ret = request_threaded_irq(ts->hx_irq, NULL, himax_ts_thread,
+			IRQF_TRIGGER_LOW | IRQF_ONESHOT, name, ts);
 	}
 
 	return ret;
@@ -884,14 +982,13 @@ int himax_int_en_set(void)
 int himax_ts_register_interrupt(void)
 {
 	struct himax_ts_data *ts = private_ts;
-	struct i2c_client *client = private_ts->client;
 	int ret = 0;
 
 
 	ts->irq_enabled = 0;
 
 	/* Work functon */
-	if (client->irq && private_ts->hx_irq) {/*INT mode*/
+	if (ts->hx_irq) {/*INT mode*/
 		ts->use_irq = 1;
 		ret = himax_int_register_trigger();
 
@@ -899,16 +996,16 @@ int himax_ts_register_interrupt(void)
 			ts->irq_enabled = 1;
 			atomic_set(&ts->irq_state, 1);
 			I("%s: irq enabled at gpio: %d\n", __func__,
-				client->irq);
+				ts->hx_irq);
 #if defined(HX_SMART_WAKEUP)
-			irq_set_irq_wake(client->irq, 1);
+			irq_set_irq_wake(ts->hx_irq, 1);
 #endif
 		} else {
 			ts->use_irq = 0;
 			E("%s: request_irq failed\n", __func__);
 		}
 	} else {
-		I("%s: client->irq is empty, use polling mode.\n", __func__);
+		I("%s: hx_irq is empty, use polling mode.\n", __func__);
 	}
 
 	/*if use polling mode need to disable HX_ESD_RECOVERY function*/
@@ -1001,18 +1098,18 @@ int fb_notifier_callback(struct notifier_block *self,
 	&& evdata->data
 	&& event == FB_EVENT_BLANK
 	&& ts
-	&& ts->client) {
+	&& ts->dev) {
 		blank = evdata->data;
 
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
-			himax_common_resume(&ts->client->dev);
+			himax_common_resume(ts->dev);
 			break;
 		case FB_BLANK_POWERDOWN:
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
-			himax_common_suspend(&ts->client->dev);
+			himax_common_suspend(ts->dev);
 			break;
 		}
 	}
@@ -1068,6 +1165,39 @@ int drm_notifier_callback(struct notifier_block *self,
 }
 #endif
 
+/*
+ * Bus-agnostic probe tail. By the time we get here the bus-specific
+ * probe has already populated ts->dev, ts->bus_ops, ts->regmap, and
+ * either ts->client or ts->spi, and registered drvdata on the
+ * underlying device. Everything below this point is identical for
+ * I2C and SPI.
+ */
+static int himax_chip_common_probe_core(struct himax_ts_data *ts)
+{
+	int ret;
+
+	mutex_init(&ts->rw_lock);
+	private_ts = ts;
+
+	ret = himax_ts_pinctrl_init(ts);
+	if (ret || ts->ts_pinctrl == NULL)
+		E(" Pinctrl init failed\n");
+
+	ts->initialized = false;
+	ret = himax_chip_common_init();
+	if (ret < 0)
+		return ret;
+
+	ret = g_core_fp.fp_read_i2c_status();
+	if (ret) {
+		E("bus communication error\n");
+		return ret;
+	}
+
+	g_core_fp.read_mcf_data();
+	return 0;
+}
+
 static int himax_chip_common_probe(struct i2c_client *client)
 {
 	int ret = 0;
@@ -1078,7 +1208,6 @@ static int himax_chip_common_probe(struct i2c_client *client)
 
 	I("%s:Enter\n", __func__);
 
-	/* Check I2C functionality */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		E("%s: i2c check functionality error\n", __func__);
 		return -ENODEV;
@@ -1095,49 +1224,30 @@ static int himax_chip_common_probe(struct i2c_client *client)
 	}
 #endif
 
-	ts = kzalloc(sizeof(struct himax_ts_data), GFP_KERNEL);
-	if (ts == NULL) {
-		E("%s: allocate himax_ts_data failed\n", __func__);
-		ret = -ENOMEM;
-		goto err_alloc_data_failed;
-	}
+	ts = kzalloc(sizeof(*ts), GFP_KERNEL);
+	if (!ts)
+		return -ENOMEM;
 
 	i2c_set_clientdata(client, ts);
 	ts->client = client;
 	ts->dev = &client->dev;
-	mutex_init(&ts->rw_lock);
-	private_ts = ts;
+	ts->bus_ops = &himax_i2c_bus_ops;
 
 	ts->regmap = devm_regmap_init_i2c(client, &himax_i2c_regmap_config);
 	if (IS_ERR(ts->regmap)) {
 		ret = PTR_ERR(ts->regmap);
-		E("%s: regmap init failed (%d)\n", __func__, ret);
-		goto err_common_init_failed;
+		E("%s: regmap_init_i2c failed (%d)\n", __func__, ret);
+		goto err_free;
 	}
 
-	ret = himax_ts_pinctrl_init(ts);
-	if (ret || ts->ts_pinctrl == NULL)
-		E(" Pinctrl init failed\n");
+	ret = himax_chip_common_probe_core(ts);
+	if (ret)
+		goto err_free;
 
-	ts->initialized = false;
-	ret = himax_chip_common_init();
-	if (ret < 0)
-		goto err_common_init_failed;
+	return 0;
 
-	ret = g_core_fp.fp_read_i2c_status();
-	if (ret) {
-		E("i2c communication error\n");
-		goto err_common_init_failed;
-	}
-
-	g_core_fp.read_mcf_data();
-
-	return ret;
-
-err_common_init_failed:
+err_free:
 	kfree(ts);
-err_alloc_data_failed:
-
 	return ret;
 }
 
@@ -1146,6 +1256,57 @@ static void himax_chip_common_remove(struct i2c_client *client)
 	if (g_hx_chip_inited)
 		himax_chip_common_deinit();
 }
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+static int himax_chip_common_spi_probe(struct spi_device *spi)
+{
+	struct himax_ts_data *ts;
+	int ret;
+
+	I("%s:Enter\n", __func__);
+
+	spi->bits_per_word = 8;
+	spi->mode = SPI_MODE_3;
+	ret = spi_setup(spi);
+	if (ret) {
+		E("%s: spi_setup failed (%d)\n", __func__, ret);
+		return ret;
+	}
+
+	ts = kzalloc(sizeof(*ts), GFP_KERNEL);
+	if (!ts)
+		return -ENOMEM;
+
+	spi_set_drvdata(spi, ts);
+	ts->spi = spi;
+	ts->dev = &spi->dev;
+	ts->bus_ops = &himax_spi_bus_ops;
+
+	ts->regmap = devm_regmap_init(&spi->dev, &himax_spi_regmap_bus, spi,
+			&himax_spi_regmap_config);
+	if (IS_ERR(ts->regmap)) {
+		ret = PTR_ERR(ts->regmap);
+		E("%s: regmap_init for spi failed (%d)\n", __func__, ret);
+		goto err_free;
+	}
+
+	ret = himax_chip_common_probe_core(ts);
+	if (ret)
+		goto err_free;
+
+	return 0;
+
+err_free:
+	kfree(ts);
+	return ret;
+}
+
+static void himax_chip_common_spi_remove(struct spi_device *spi)
+{
+	if (g_hx_chip_inited)
+		himax_chip_common_deinit();
+}
+#endif /* CONFIG_TOUCHSCREEN_HIMAX_SPI */
 
 static const struct i2c_device_id himax_common_ts_id[] = {
 	{HIMAX_common_NAME, 0 },
@@ -1182,8 +1343,32 @@ static struct i2c_driver himax_common_driver = {
 	},
 };
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+static const struct spi_device_id himax_common_spi_id[] = {
+	{ HIMAX_common_NAME, 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(spi, himax_common_spi_id);
+
+static struct spi_driver himax_common_spi_driver = {
+	.id_table = himax_common_spi_id,
+	.probe = himax_chip_common_spi_probe,
+	.remove = himax_chip_common_spi_remove,
+	.driver = {
+		.name = HIMAX_common_NAME,
+		.owner = THIS_MODULE,
+		.of_match_table = himax_match_table,
+#if defined(CONFIG_PM)
+		.pm = &himax_common_pm_ops,
+#endif
+	},
+};
+#endif
+
 static int __init himax_common_init(void)
 {
+	int ret;
+
 	I("Himax common touch panel driver init\n");
 	D("Himax check double loading\n");
 	if (g_mmi_refcnt++ > 0) {
@@ -1192,13 +1377,30 @@ static int __init himax_common_init(void)
 
 		return 0;
 	}
-	i2c_add_driver(&himax_common_driver);
+
+	ret = i2c_add_driver(&himax_common_driver);
+	if (ret) {
+		E("Failed to register i2c driver: %d\n", ret);
+		return ret;
+	}
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+	ret = spi_register_driver(&himax_common_spi_driver);
+	if (ret) {
+		E("Failed to register spi driver: %d\n", ret);
+		i2c_del_driver(&himax_common_driver);
+		return ret;
+	}
+#endif
 
 	return 0;
 }
 
 static void __exit himax_common_exit(void)
 {
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_HIMAX_SPI)
+	spi_unregister_driver(&himax_common_spi_driver);
+#endif
 	i2c_del_driver(&himax_common_driver);
 }
 
