@@ -1,15 +1,28 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /*
- * Copyright (c) 2024, Saalim Quadri <danascape@gmail.com>
+ * Copyright (c) 2025, Anri Dellal <anridellal@gmail.com>
+ * Copyright (c) 2026, Librist <contact@librist.org>
+ *
+ * Part of this code is adapted from sm7225-fairphone-fp4.dts:
+ *
+ * Copyright (c) 2021, Luca Weiss <luca@z3ntu.xyz>
  */
+
 /dts-v1/;
 
-#include <dt-bindings/dma/qcom-gpi.h>
+/* PM7250B is configured to use SID2/3 */
+#define PM7250B_SID 2
+#define PM7250B_SID1 3
+
+#include <dt-bindings/firmware/qcom,scm.h>
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "sm6350.dtsi"
+#include "pm6150l.dtsi"
 #include "pm6350.dtsi"
+#include "pm7250b.dtsi"
 
 /delete-node/ &ramoops;
 
@@ -17,10 +30,13 @@
 	model = "Oneplus Nord N10 5G";
 	compatible = "oneplus,billie", "qcom,sm6350";
 	chassis-type = "handset";
+
+	/* seems required for bootloader to select correct board */
 	qcom,msm-id = <434 0x10000>, <459 0x10000>;
-	qcom,board-id = <0x1000B 0>;
+	qcom,board-id = <0x1000b 0>;
 
 	aliases {
+		serial0 = &uart9;
 	};
 
 	chosen {
@@ -28,11 +44,11 @@
 		#size-cells = <2>;
 		ranges;
 
-		stdout-path = "framebuffer0";
+		stdout-path = "serial0:115200n8";
 
 		framebuffer0: framebuffer@a0000000 {
 			compatible = "simple-framebuffer";
-			reg = <0x0 0xA0000000 0x0 (1080 * 2400 * 4)>;
+			reg = <0x0 0xa0000000 0x0 (1080 * 2400 * 4)>;
 			width = <1080>;
 			height = <2400>;
 			stride = <(1080 * 4)>;
@@ -43,58 +59,55 @@
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
-		pinctrl-0 = <&vol_down_n>;
+		pinctrl-0 = <&key_vol_down_default>;
 
 		key-volume-down {
 			label = "Volume Down";
 			linux,code = <KEY_VOLUMEDOWN>;
 			gpios = <&pm6350_gpios 2 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+			wakeup-source;
 		};
 	};
 
-	reserved_memory {
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
-
-		wt_sysm_mem: memory@B8000000 {
-			reg = <0 0xB8000000 0 0x1000>;
+	reserved-memory {
+		bootloader-log@9fff7000 {
+			reg = <0x0 0x9fff7000 0x0 0x8000>;
 			no-map;
 		};
 
-		wt_bllog_mem: memory@B8001000 {
-			reg = <0 0xB8001000 0 0x90000>;
-			no-map;
-		};
-
-		wt_brlog_mem: memory@B8091000 {
-			reg = <0 0xB8091000 0 0x10000>;
-			no-map;
-		};
-
-		param_mem: memory@CC200000 {
-			reg = <0 0xCC200000 0 0x00100000>;
-			no-map;
-		};
-
-		mtp_mem: memory@AC300000 {
-			reg = <0 0xAC300000 0 0x00B00000>;
-			no-map;
-		};
-
-		bootloader_log_mem: memory@9FFF7000 {
-			reg = <0 0x9FFF7000 0 0x00008000>;
-			no-map;
-		};
-
-		ramoops@CBE00000 {
+		ramoops@cbe00000 {
 			compatible = "ramoops";
-			reg = <0 0xCBE00000 0 0x00400000>;
-			record-size = <0x40000>;  //256x1024
+			reg = <0x0 0xcbe00000 0x0 0x400000>;
+			record-size = <0x40000>;
 			console-size = <0x40000>;
 			ftrace-size = <0x40000>;
 			pmsg-size = <0x200000>;
 			ecc-size = <0x0>;
+		};
+
+		param@cc200000 {
+			reg = <0x0 0xcc200000 0x0 0x100000>;
+			no-map;
+		};
+
+		mtp@cc300000 {
+			reg = <0x0 0xcc300000 0x0 0xb00000>;
+			no-map;
+		};
+
+		/*
+		 * The rmtfs memory region in downstream is 'dynamically allocated'
+		 * but given the same address every time. Hard code it as this address is
+		 * where the modem firmware expects it to be.
+		 */
+		rmtfs_mem: rmtfs@efd00000 {
+			compatible = "qcom,rmtfs-mem";
+			reg = <0x0 0xefd00000 0x0 0x280000>;
+			no-map;
+
+			qcom,client-id = <1>;
+			qcom,vmid = <QCOM_SCM_VMID_MSS_MSA>;
 		};
 	};
 };
@@ -104,60 +117,149 @@
 		compatible = "qcom,pm6350-rpmh-regulators";
 		qcom,pmic-id = "a";
 
+		vreg_s1a: smps1 {
+			regulator-name = "vreg_s1a";
+			regulator-min-microvolt = <1000000>;
+			regulator-max-microvolt = <1200000>;
+		};
+
 		vreg_s2a: smps2 {
 			regulator-name = "vreg_s2a";
 			regulator-min-microvolt = <1503000>;
 			regulator-max-microvolt = <2048000>;
 		};
 
+		vreg_l2a: ldo2 {
+			regulator-name = "vreg_l2a";
+			regulator-min-microvolt = <1503000>;
+			regulator-max-microvolt = <1980000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l3a: ldo3 {
+			regulator-name = "vreg_l3a";
+			regulator-min-microvolt = <2700000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l4a: ldo4 {
 			regulator-name = "vreg_l4a";
 			regulator-min-microvolt = <352000>;
 			regulator-max-microvolt = <801000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-							RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l5a: ldo5 {
+			regulator-name = "vreg_l5a";
+			regulator-min-microvolt = <1503000>;
+			regulator-max-microvolt = <1980000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l6a: ldo6 {
+			regulator-name = "vreg_l6a";
+			regulator-min-microvolt = <1710000>;
+			regulator-max-microvolt = <3544000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_l7a: ldo7 {
 			regulator-name = "vreg_l7a";
 			regulator-min-microvolt = <1620000>;
 			regulator-max-microvolt = <1980000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-							RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l8a: ldo8 {
+			regulator-name = "vreg_l8a";
+			regulator-min-microvolt = <2500000>;
+			regulator-max-microvolt = <3544000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l9a: ldo9 {
+			regulator-name = "vreg_l9a";
+			regulator-min-microvolt = <1650000>;
+			regulator-max-microvolt = <3401000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l11a: ldo11 {
+			regulator-name = "vreg_l11a";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <2000000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_l12a: ldo12 {
 			regulator-name = "vreg_l12a";
 			regulator-min-microvolt = <1620000>;
 			regulator-max-microvolt = <1980000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
-		
+
+		vreg_l13a: ldo13 {
+			regulator-name = "vreg_l13a";
+			regulator-min-microvolt = <570000>;
+			regulator-max-microvolt = <650000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l14a: ldo14 {
+			regulator-name = "vreg_l14a";
+			regulator-min-microvolt = <1700000>;
+			regulator-max-microvolt = <1900000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l15a: ldo15 {
+			regulator-name = "vreg_l15a";
+			regulator-min-microvolt = <1100000>;
+			regulator-max-microvolt = <1305000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l16a: ldo16 {
+			regulator-name = "vreg_l16a";
+			regulator-min-microvolt = <830000>;
+			regulator-max-microvolt = <921000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l18a: ldo18 {
 			regulator-name = "vreg_l18a";
 			regulator-min-microvolt = <788000>;
 			regulator-max-microvolt = <1049000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
-		
+
+		vreg_l19a: ldo19 {
+			regulator-name = "vreg_l19a";
+			regulator-min-microvolt = <1080000>;
+			regulator-max-microvolt = <1305000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l20a: ldo20 {
+			regulator-name = "vreg_l20a";
+			regulator-min-microvolt = <530000>;
+			regulator-max-microvolt = <801000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l21a: ldo21 {
+			regulator-name = "vreg_l21a";
+			regulator-min-microvolt = <751000>;
+			regulator-max-microvolt = <825000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l22a: ldo22 {
 			regulator-name = "vreg_l22a";
 			regulator-min-microvolt = <1080000>;
 			regulator-max-microvolt = <1305000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
 
@@ -171,40 +273,69 @@
 			regulator-max-microvolt = <1395000>;
 		};
 
+		vreg_l1e: ldo1 {
+			regulator-name = "vreg_l1e";
+			regulator-min-microvolt = <1620000>;
+			regulator-max-microvolt = <1980000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l2e: ldo2 {
 			regulator-name = "vreg_l2e";
 			regulator-min-microvolt = <1170000>;
 			regulator-max-microvolt = <1305000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l3e: ldo3 {
+			regulator-name = "vreg_l3e";
+			regulator-min-microvolt = <1100000>;
+			regulator-max-microvolt = <1299000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l4e: ldo4 {
+			regulator-name = "vreg_l4e";
+			regulator-min-microvolt = <1620000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l5e: ldo5 {
+			regulator-name = "vreg_l5e";
+			regulator-min-microvolt = <1620000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+		vreg_l6e: ldo6 {
+			regulator-name = "vreg_l6e";
+			regulator-min-microvolt = <1700000>;
+			regulator-max-microvolt = <3544000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
 		};
 
-		vreg_l6e: ldo6 {
-			regulator-name = "vreg_l6e";
-			regulator-min-microvolt = <1700000>;
-			regulator-max-microvolt = <3544000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
-		};
 		vreg_l7e: ldo7 {
 			regulator-name = "vreg_l7e";
 			regulator-min-microvolt = <2700000>;
 			regulator-max-microvolt = <3544000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l8e: ldo8 {
+			regulator-name = "vreg_l8e";
+			regulator-min-microvolt = <1620000>;
+			regulator-max-microvolt = <2000000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_l9e: ldo9 {
 			regulator-name = "vreg_l9e";
 			regulator-min-microvolt = <2700000>;
 			regulator-max-microvolt = <3544000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 			regulator-allow-set-load;
 			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
 						   RPMH_REGULATOR_MODE_HPM>;
@@ -214,20 +345,14 @@
 			regulator-name = "vreg_l10e";
 			regulator-min-microvolt = <3000000>;
 			regulator-max-microvolt = <3401000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_l11e: ldo11 {
 			regulator-name = "vreg_l11e";
 			regulator-min-microvolt = <3000000>;
 			regulator-max-microvolt = <3401000>;
-			regulator-initial-mode = <RPMH_REGULATOR_MODE_LPM>;
-			regulator-allow-set-load;
-			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
-						   RPMH_REGULATOR_MODE_HPM>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
 		vreg_bob: bob {
@@ -240,50 +365,68 @@
 	};
 };
 
+/* &dispcc disabled to use simplefb and prevent display
+   going black after a few seconds */
+
+&dispcc {
+	status = "disabled";
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm6350/OnePlus/billie/a615_zap.mbn";
+};
+
 &qupv3_id_0 {
 	status = "okay";
+};
 
-	spi0: spi@880000 {
-		compatible = "qcom,geni-spi";
-		reg = <0 0x00880000 0 0x4000>;
-		clock-names = "se";
-		clocks = <&gcc GCC_QUPV3_WRAP0_S0_CLK>;
-		pinctrl-names = "default", "sleep";
-		//pinctrl-0 = <&qup_spi0_spi>, <&qup_spi0_cs>;
-		pinctrl-0 = <&qup_spi0_active>;
-		pinctrl-1 = <&qup_spi0_sleep>;
-		interrupts = <GIC_SPI 601 IRQ_TYPE_LEVEL_HIGH>;
-		dmas = <&gpi_dma0 0 0 QCOM_GPI_SPI>,
-		       <&gpi_dma0 1 0 QCOM_GPI_SPI>;
-		dma-names = "tx", "rx";
+&spi0 {
+	status = "okay";
 
-		operating-points-v2 = <&qup_opp_table>;
+	touchscreen@0 {
+		compatible = "himax,hxcommon";
+		reg = <0x00>;
+		spi-max-frequency = <10000000>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <22 IRQ_TYPE_LEVEL_LOW>;
+		himax,panel-coords = <0 1080 0 2400>;
+		himax,display-coords = <0 1080 0 2400>;
+		himax,irq-gpio = <&tlmm 22 IRQ_TYPE_LEVEL_LOW>;
+		himax,rst-gpio = <&tlmm 21 0x00>;
+		himax,cs-gpio = <&tlmm 3 0x00>;
+		report_type = <1>;
 
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interconnects = <&clk_virt MASTER_QUP_CORE_0 0 &clk_virt SLAVE_QUP_CORE_0 0>,
-				<&gem_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_QUP_0 0>,
-				<&aggre1_noc MASTER_QUP_0 0 &clk_virt SLAVE_EBI_CH0 0>;
-		interconnect-names = "qup-core", "qup-config", "qup-memory";
-		status = "okay";
-		qcom,spi-touch-active = "himax,hxcommon";
-
-		touchscreen@0 {
-			compatible = "himax,hxcommon";
-			reg = <0>;
-			interrupt-parent = <&tlmm>;
-			interrupts = <22 IRQ_TYPE_LEVEL_LOW>;
-			himax,panel-coords = <0 1080 0 2400>;
-			himax,display-coords = <0 1080 0 2400>;
-			himax,irq-gpio = <&tlmm 22 IRQ_TYPE_LEVEL_LOW>;
-			himax,reset-gpio = <&tlmm 21 0>;
-			himax,cs-gpio = <&tlmm 3 0>;
-		};
+		//panel = <&dsi_hx83112_tianma_fhd_video>;
+		//chip-name = "hx83112f";
 	};
 };
 
 &qupv3_id_1 {
 	status = "okay";
+};
+
+&i2c7 {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	tfa98xx_smartpa@34 {
+		compatible = "nxp,tfa98xx";
+		reg = <0x34>;
+		reset-gpio =<&tlmm 91 GPIO_ACTIVE_HIGH>;
+		irq-gpio = <&tlmm 134 GPIO_ACTIVE_HIGH>;
+	};
+
+	tfa98xx_smartpa@35 {
+		compatible = "nxp,tfa98xx";
+		reg = <0x35>;
+		reset-gpio =<&tlmm 101 GPIO_ACTIVE_HIGH>;
+		irq-gpio = <&tlmm 107 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &i2c8 {
@@ -292,6 +435,7 @@
 
 &i2c10 {
 	clock-frequency = <100000>;
+
 	status = "okay";
 
 	pm8008: pmic@8 {
@@ -335,7 +479,7 @@
 			vreg_l3p: ldo3 {
 				regulator-name = "vreg_l3p";
 				regulator-min-microvolt = <1500000>;
-				regulator-max-microvolt = <3400000>;
+				regulator-max-microvolt = <2850000>;
 			};
 
 			vreg_l4p: ldo4 {
@@ -370,26 +514,18 @@
 &ipa {
 	qcom,gsi-loader = "self";
 	memory-region = <&pil_ipa_fw_mem>;
-	firmware-name = "qcom/sm6350/billie/ipa_fws.mbn";
+	firmware-name = "qcom/sm6350/OnePlus/billie/ipa_fws.mbn";
+
 	status = "okay";
 };
 
 &pm6350_gpios {
-	vol_down_n: vol-down-n-state {
+	key_vol_down_default: vol-down-default-state {
 		pins = "gpio2";
 		function = PMIC_GPIO_FUNC_NORMAL;
-		power-source = <0>;
-		bias-pull-up;
 		input-enable;
-	};
-};
-
-&sdc2_off_state {
-	sd-cd-pins {
-		pins = "gpio94";
-		function = "gpio";
-		drive-strength = <2>;
-		bias-disable;
+		bias-pull-up;
+		power-source = <0>;
 	};
 };
 
@@ -402,29 +538,53 @@
 	};
 };
 
+&sdc2_off_state {
+	sd-cd-pins {
+		pins = "gpio94";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
 &sdhc_2 {
 	vmmc-supply = <&vreg_l9e>;
 	vqmmc-supply = <&vreg_l6e>;
-	status = "okay";
 
-	cd-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
+
+	status = "okay";
 };
 
 &tlmm {
-	gpio-reserved-ranges = <13 4>, <45 2>, <56 2>;
+	gpio-reserved-ranges = <13 4>, <56 2>;
 
-	qup_spi0_active: qup-spi0-active-state {
-		pins = "gpio0", "gpio1", "gpio2", "gpio3";
-		function = "qup00";
-		drive-strength = <6>;
+	qup_uart1_ctsrtsrx: qup-uart1-ctsrtsrx-default-state {
+		pins = "gpio61", "gpio62", "gpio64";
+		function = "gpio";
+		drive-strength = <0x02>;
+		bias-pull-down;
+	};
+
+	qup_uart1_active_ctsrx: qup-uart1-active-ctsrx-state {
+		pins = "gpio61", "gpio64";
+		function = "qup01";
+		drive-strength = <0x02>;
 		bias-disable;
 	};
 
-	qup_spi0_sleep: qup-spi0-sleep-state {
-		pins = "gpio0", "gpio1", "gpio2", "gpio3";
-		function = "gpio";
-		drive-strength = <6>;
-		bias-disable;
+	qup_uart1_active_rts: qup-uart1-active-rts-state {
+		pins = "gpio62";
+		function = "qup01";
+		drive-strength = <0x02>;
+		bias-pull-down;
+	};
+
+	qup_uart1_active_tx: qup-uart1-active-tx-state {
+		pins = "gpio63";
+		function = "qup01";
+		drive-strength = <0x02>;
+		bias-pull-up;
 	};
 
 	pm8008_active: pm8008-active-state {
@@ -438,13 +598,57 @@
 		pins = "gpio59";
 		function = "gpio";
 		bias-disable;
-		input-enable;
 	};
+};
 
+&uart1 {
+	/delete-property/ interrupts;
+	/*
+	 * in fdt: interrupts-extended = <0x01 0x00 0x25a 0x04 0xca 0x40 0x04>
+	 *   <0x0> -> interrupt-controller@17a00000 -> intc
+	 *   GIC_SPI = 0
+	 *   0x25a = 602
+	 *   IRQ_TYPE_LEVEL_HIGH = 4
+	 *   <0xca> = pinctrl@f100000 -> tlmm
+	 *   0x40 = 64
+	 *   IRQ_TYPE_LEVEL_HIGH = 4
+	 */
+	interrupts-extended = <&intc GIC_SPI 602 IRQ_TYPE_LEVEL_HIGH>,
+			      <&tlmm 64 IRQ_TYPE_LEVEL_HIGH>;
+	pinctrl-names = "default", "sleep";
+	/*
+	 * in fdt:
+	 *   pinctrl-0 = <0x192 0x193>;
+	 *   <0x192> -> qupv3_se1_default_ctsrtsrx, <0x193> -> qupv3_se1_default_tx
+	 */
+	pinctrl-0 = <&qup_uart1_ctsrtsrx &qup_uart1_tx>;
+	/*
+	 * in fdt:
+	 *   pinctrl-1 = <0x194 0x195 0x196>;
+	 *   pinctrl-2 = <0x194 0x195 0x196>;
+	 *   <0x194> -> qupv3_se1_ctsrx, <0x195> -> qupv3_se1_rts, <0x196> -> qupv3_se1_tx
+	 */
+	pinctrl-1 = <&qup_uart1_active_ctsrx &qup_uart1_active_rts &qup_uart1_active_tx>;
+
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+
+		vddio-supply = <&vreg_l11a>;
+		vddxo-supply = <&vreg_l7a>;
+		vddrf-supply = <&vreg_l2e>;
+		vddch0-supply = <&vreg_l10e>;
+		
+		max-speed = <3200000>;
+	};
+};
+
+&uart9 {
+	status = "okay";
 };
 
 &ufs_mem_hc {
-	vdd-hba-supply = <&vreg_l22a>;
 	vcc-supply = <&vreg_l7e>;
 	vcc-max-microamp = <800000>;
 	vccq2-supply = <&vreg_l12a>;
@@ -467,15 +671,21 @@
 &usb_1_dwc3 {
 	/delete-property/ usb-role-switch;
 	maximum-speed = "super-speed";
-	dr_mode = "host";
-
+	dr_mode = "otg";
 };
 
 &usb_1_hsphy {
+	vdd-supply = <&vreg_l18a>;
+	vdda-pll-supply = <&vreg_l2a>;
+	vdda-phy-dpdm-supply = <&vreg_l3a>;
+
 	status = "okay";
 };
 
 &usb_1_qmpphy {
+	vdda-phy-supply = <&vreg_l22a>;
+	vdda-pll-supply = <&vreg_l16a>;
+
 	status = "okay";
 };
 
