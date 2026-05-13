@@ -377,7 +377,7 @@
 };
 
 &gpu_zap_shader {
-	firmware-name = "qcom/sm6350/OnePlus/billie/a615_zap.mbn";
+	firmware-name = "qcom/sm6350/billie/a615_zap.mbn";
 };
 
 &qupv3_id_0 {
@@ -514,7 +514,7 @@
 &ipa {
 	qcom,gsi-loader = "self";
 	memory-region = <&pil_ipa_fw_mem>;
-	firmware-name = "qcom/sm6350/OnePlus/billie/ipa_fws.mbn";
+	firmware-name = "qcom/sm6350/billie/ipa_fws.mbn";
 
 	status = "okay";
 };
