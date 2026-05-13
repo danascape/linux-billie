@@ -23,11 +23,17 @@
 #include <linux/slab.h>
 #include <linux/firmware.h>
 #include <linux/kthread.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/delay.h>
-#include <linux/oem/boot_mode.h>  // modified to oem by kuppala.rao@oneplus.com
+#include <linux/vmalloc.h>
 #include <linux/workqueue.h>
-#include <linux/hardware_info.h>
+
+/* boot_mode stubs — mainline always boots normally */
+#define MSM_BOOT_MODE_RECOVERY  (-1)
+#define MSM_BOOT_MODE_FACTORY   (-1)
+#define MSM_BOOT_MODE_RF        (-1)
+#define MSM_BOOT_MODE_CHARGE    (-1)
+static inline int get_boot_mode(void) { return 0; }
 
 #include "util_interface/touch_interfaces.h"
 #include "tp_devices.h"
@@ -91,9 +97,6 @@
 #define FOCAL_PREFIX        "FT_"
 
 #define FW_UPDATE_DELAY        msecs_to_jiffies(2*1000)
-extern struct drm_panel *lcd_active_panel;
-extern struct drm_panel *tp_active_panel;
-extern char Ctp_name[HARDWARE_MAX_ITEM_LONGTH];
 
 /*********PART3:Struct Area**********************/
 typedef enum {
@@ -653,8 +656,6 @@ void tp_touch_btnkey_release(void);
 void tp_util_get_vendor(struct touchpanel_data *ts, struct panel_info *panel_data);
 extern bool tp_judge_ic_match(char * tp_ic_name);
 /* add haptic audio tp mask */
-extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
-extern int gf_opticalfp_irq_handler(int event);
 
 #endif
 

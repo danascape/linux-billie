@@ -15,6 +15,9 @@
 
 #include <linux/of_gpio.h>
 #include <linux/delay.h>
+#include <linux/vmalloc.h>
+#include <linux/string.h>
+#include <linux/rtc.h>
 #include <linux/sysfs.h>
 #include <linux/uaccess.h>
 #include <linux/module.h>
@@ -31,8 +34,6 @@
 #include <linux/pinctrl/machine.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
-#include <linux/oem/project_info.h>
-
 #ifdef CONFIG_FB
 #include <linux/fb.h>
 #include <linux/notifier.h>
@@ -41,8 +42,6 @@
 #include <linux/spi/spi.h>
 #include <drm/drm_panel.h>
 
-#include <drm/dsi_pwr.h>
-#include <dsi/dsi_panel.h>
 
 #include "hx83112f_noflash.h"
 
@@ -105,7 +104,6 @@ int check_point_format;
 unsigned char switch_algo;
 uint8_t HX_PROC_SEND_FLAG;
 
-struct dsi_panel *TP_Panel = NULL;
 extern int tp_shutdown(struct device *dev);
 
 /*******Part0: SPI Interface***************/
@@ -1465,7 +1463,6 @@ bool himax_ic_package_check(void)
 		himax_register_read(tmp_addr, 4, tmp_data, false);
 
 		TPD_INFO("%s:Read driver IC ID = %X, %X, %X\n", __func__, tmp_data[3], tmp_data[2], tmp_data[1]);
-		push_component_info(TP, "83112F", "Himax");
 
 		if ((tmp_data[3] == 0x83) && (tmp_data[2] == 0x11) && (tmp_data[1] == 0x2f)) {
 			IC_TYPE = HX_83112F_SERIES_PWON;
@@ -1498,7 +1495,6 @@ bool himax_ic_package_check(void)
 		}
 		ret_data = false;
 		TPD_INFO("%s:Read driver ID register Fail:\n", __func__);
-		push_component_info(TP, "unknow", "unknow");
 	}
 
 	return ret_data;
@@ -2094,7 +2090,6 @@ int hx_test_data_pop_out(struct chip_data_hx83112f *chip_info,
 	char *Company = "Himax for OP: Driver Seneor Test\n";
 	char *Info = "Test Info as follow\n";
 	char *project_name_log = "OP_";
-	mm_segment_t fs;
 	loff_t pos = 0;
 	int ret_val = NO_ERR;
 
@@ -2130,8 +2125,6 @@ int hx_test_data_pop_out(struct chip_data_hx83112f *chip_info,
 		goto SAVE_DATA_ERR;
 	}
 
-	fs = get_fs();
-	set_fs(get_ds());
 	vfs_write(raw_file, g_Company_info_log, (int)(strlen(g_Company_info_log)), &pos);
 	pos = pos + (int)(strlen(g_Company_info_log));
 
@@ -2144,8 +2137,6 @@ int hx_test_data_pop_out(struct chip_data_hx83112f *chip_info,
 	vfs_write(raw_file, rslt_buf, g_1kind_raw_size * HX_CRITERIA_ITEM * sizeof(char), &pos);
 	if (raw_file != NULL)
 		filp_close(raw_file, NULL);
-
-	set_fs(fs);
 
 SAVE_DATA_ERR:
 	TPD_INFO("%s: End!\n", __func__);
@@ -3618,7 +3609,7 @@ static void hx83112f_black_screen_test(void *chip_data, char *message)
 	int error = 0;
 	int error_num = 0;
 	int retry_cnt = 3;
-	struct timespec now_time;
+	struct timespec64 now_time;
 	struct rtc_time rtc_now_time;
 	char *buf = NULL;
 	char *g_file_name_OK = NULL;
@@ -3757,8 +3748,8 @@ static void hx83112f_black_screen_test(void *chip_data, char *message)
 
 	hx83112f_enable_interrupt(chip_info, true);
 	/*Save Log Data */
-	getnstimeofday(&now_time);
-	rtc_time_to_tm(now_time.tv_sec, &rtc_now_time);
+	ktime_get_real_ts64(&now_time);
+	rtc_time64_to_tm(now_time.tv_sec, &rtc_now_time);
 	snprintf(g_file_name_OK, sizeof(g_file_name_OK), "tp_testlimit_gesture_OK_%02d%02d%02d-%02d%02d%02d-utc.csv",
 			(rtc_now_time.tm_year + 1900) % 100, rtc_now_time.tm_mon + 1, rtc_now_time.tm_mday,
 			rtc_now_time.tm_hour, rtc_now_time.tm_min, rtc_now_time.tm_sec);
@@ -3987,7 +3978,7 @@ static size_t hx83112f_proc_register_read(struct file *file, char *buf, size_t l
 	char *temp_buf;
 	int max_bus_size = 128;
 
-	//struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	//struct touchpanel_data *ts = pde_data(file_inode(file));
 	data = kcalloc(max_bus_size, sizeof(uint8_t), GFP_KERNEL);
 	if (!data) {
 		TPD_INFO("%s: Can't allocate enough data\n", __func__);
@@ -4037,7 +4028,7 @@ static size_t hx83112f_proc_register_write(struct file *file, const char *buff, 
 	uint8_t w_data[20];
 	uint8_t x_pos[20];
 	uint8_t count = 0;
-	//struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	//struct touchpanel_data *ts = pde_data(file_inode(file));
 
 	if (len >= 80) {
 		TPD_INFO("%s: no command exceeds 80 chars.\n", __func__);
@@ -4411,7 +4402,7 @@ static size_t hx83112f_proc_diag_write(struct file *file, const char *buff, size
 	uint8_t command[2] = {0x00, 0x00};
 	uint8_t receive[1];
 
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct chip_data_hx83112f *chip_info = (struct chip_data_hx83112f *)ts->chip_data;
 
 	/* 0: common, other: dsram*/
@@ -4533,7 +4524,7 @@ static size_t hx83112f_proc_diag_read(struct file *file, char *buff, size_t len,
 	int j = 0;
 	int k = 0;
 
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct chip_data_hx83112f *chip_info = (struct chip_data_hx83112f *)ts->chip_data;
 
 	if (!HX_PROC_SEND_FLAG) {
@@ -4721,7 +4712,7 @@ static size_t hx83112f_proc_reset_write(struct file *file, const char *buff,
 										size_t len, loff_t *pos)
 {
 	char buf_tmp[12];
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct chip_data_hx83112f *chip_info = (struct chip_data_hx83112f *)ts->chip_data;
 
 	if (len >= 12) {
@@ -4748,7 +4739,7 @@ static size_t hx83112f_proc_sense_on_off_write(struct file *file, const char *bu
 		size_t len, loff_t *pos)
 {
 	char buf[80] = {0};
-	//struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	//struct touchpanel_data *ts = pde_data(file_inode(file));
 
 	if (len >= 80) {
 		TPD_INFO("%s: no command exceeds 80 chars.\n", __func__);
@@ -5174,7 +5165,6 @@ static fw_check_state hx83112f_fw_check(void *chip_data,
 	//fw check normal need update TP_FW  && device info
 	panel_data->TP_FW = hx83112f_get_fw_id(chip_info);
 	snprintf(dev_version, HX_DEV_VERSION_LEN, "%02X", panel_data->TP_FW);
-	snprintf(Ctp_name, sizeof(Ctp_name), "TM,HX83112,FW:0x%x\n", panel_data->TP_FW);
 	TPD_INFO("%s: panel_data->TP_FW = %d\n", __func__, panel_data->TP_FW);
 	TPD_INFO("%s: g_lcd_vendor = %d\n", __func__, g_lcd_vendor);
 	TPD_INFO("%s: dev_version = %s\n", __func__, dev_version);
@@ -5185,7 +5175,7 @@ static fw_check_state hx83112f_fw_check(void *chip_data,
 		if (ver_len <= 9)
 			strlcat(panel_data->manufacture_info.version, dev_version, MAX_DEVICE_VERSION_LENGTH);
 		else
-			strlcpy(&panel_data->manufacture_info.version[12], dev_version, 3);
+			strscpy(&panel_data->manufacture_info.version[12], dev_version, 3);
 	}
 
 	return FW_NORMAL;
@@ -6148,7 +6138,7 @@ static void hx83112f_auto_test(struct seq_file *s, void *chip_data, struct syna_
 	char *fw_name_test = NULL;
 	char *postfix = "_TEST.img";
 	uint8_t copy_len = 0;
-	struct timespec now_time;
+	struct timespec64 now_time;
 	struct rtc_time rtc_now_time;
 	char g_file_name_OK[64];
 	char g_file_name_NG[64];
@@ -6228,8 +6218,8 @@ static void hx83112f_auto_test(struct seq_file *s, void *chip_data, struct syna_
 	error_count += hx83112f_int_pin_test(s, chip_info, syna_testdata, g_Test_list_log);
 	error_count += himax_chip_self_test(s, chip_info, g_Test_list_log);
 	/*Save Log Data */
-	getnstimeofday(&now_time);
-	rtc_time_to_tm(now_time.tv_sec, &rtc_now_time);
+	ktime_get_real_ts64(&now_time);
+	rtc_time64_to_tm(now_time.tv_sec, &rtc_now_time);
 	snprintf(g_file_name_OK, sizeof(g_file_name_OK),  "tp_testlimit_OK_%02d%02d%02d-%02d%02d%02d-utc.csv",
 			(rtc_now_time.tm_year + 1900) % 100, rtc_now_time.tm_mon + 1, rtc_now_time.tm_mday,
 			rtc_now_time.tm_hour, rtc_now_time.tm_min, rtc_now_time.tm_sec);
@@ -6887,8 +6877,6 @@ static int check_dt(struct device_node *np)
 		panel = of_drm_find_panel(node);
 		if (!IS_ERR(panel)) {
 			//get_lcd_name(node->name);
-			tp_active_panel = panel;
-			lcd_active_panel = panel;
 			return 0;
 		}
 		of_node_put(node);
@@ -6959,14 +6947,14 @@ static int hx83112f_tp_probe(struct spi_device *spi)
 	chip_info->using_headfile = false;
 	chip_info->first_download_finished = false;
 
-	if (ts->s_client->master->flags & SPI_MASTER_HALF_DUPLEX) {
+	if (ts->s_client->controller->flags & SPI_CONTROLLER_HALF_DUPLEX) {
 		TPD_INFO("Full duplex not supported by master\n");
 		ret = -EIO;
 		goto err_spi_setup;
 	}
 	ts->s_client->bits_per_word = 8;
 	ts->s_client->mode = SPI_MODE_3;
-	ts->s_client->chip_select = 0;
+	ts->s_client->chip_select[0] = 0;
 
 #ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
 	/* new usage of MTK spi API */
@@ -7053,18 +7041,15 @@ err_register_driver:
 	return ret;
 }
 
-static int hx83112f_tp_remove(struct spi_device *spi)
+static void hx83112f_tp_remove(struct spi_device *spi)
 {
 	struct touchpanel_data *ts = spi_get_drvdata(spi);
 
 	ts->s_client = NULL;
-	/* spin_unlock_irq(&ts->spi_lock); */
 	spi_set_drvdata(spi, NULL);
 
 	TPD_INFO("%s is called\n", __func__);
 	kfree(ts);
-
-	return 0;
 }
 
 /*add codes for touchpanel shutdown*/
@@ -7094,9 +7079,6 @@ static void hx83112f_tp_shutdown(struct spi_device *spi)
 			TPD_INFO("failed to enable vregs, rc=%d\n", rc);
 	}
 	*/
-	if(TP_Panel != NULL){
-		gpio_set_value(TP_Panel->reset_config.reset_gpio, 0);
-	}
 	mdelay(5);
 	gpio_direction_output(ts->hw_res.reset_gpio, 0);
 	mdelay(5);
@@ -7108,12 +7090,6 @@ static void hx83112f_tp_shutdown(struct spi_device *spi)
 
 	mdelay(20);
 
-	if(TP_Panel != NULL){
-		usleep_range(10000, 12000);
-		rc = dsi_pwr_enable_regulator(&TP_Panel->power_info, false);
-		if (rc)
-			TPD_INFO("failed to enable vregs, rc=%d\n", rc);
-	}
 
 	TPD_INFO("%s is called cs is below\n", __func__);
 	return ;
