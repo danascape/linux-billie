@@ -602,8 +602,7 @@ static int pll_10nm_register(struct dsi_pll_10nm *pll_10nm, struct clk_hw **prov
 	pll_bit = devm_clk_hw_register_divider_parent_hw(dev, clk_name,
 			pll_out_div, CLK_SET_RATE_PARENT,
 			pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CLK_CFG0,
-			0, 4, CLK_DIVIDER_ONE_BASED | CLK_DIVIDER_ALLOW_ZERO,
-			&pll_10nm->postdiv_lock);
+			0, 4, CLK_DIVIDER_ONE_BASED, &pll_10nm->postdiv_lock);
 	if (IS_ERR(pll_bit)) {
 		ret = PTR_ERR(pll_bit);
 		goto fail;
@@ -659,8 +658,7 @@ static int pll_10nm_register(struct dsi_pll_10nm *pll_10nm, struct clk_hw **prov
 	/* PIX CLK DIV : DIV_CTRL_7_4*/
 	hw = devm_clk_hw_register_divider_parent_hw(dev, clk_name, pclk_mux,
 			0, pll_10nm->phy->base + REG_DSI_10nm_PHY_CMN_CLK_CFG0,
-			4, 4, CLK_DIVIDER_ONE_BASED | CLK_DIVIDER_ALLOW_ZERO,
-			&pll_10nm->postdiv_lock);
+			4, 4, CLK_DIVIDER_ONE_BASED, &pll_10nm->postdiv_lock);
 	if (IS_ERR(hw)) {
 		ret = PTR_ERR(hw);
 		goto fail;
