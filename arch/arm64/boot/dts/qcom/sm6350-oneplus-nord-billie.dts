@@ -57,27 +57,44 @@
 		#size-cells = <2>;
 		ranges;
 
-		param_mem: memory@CC200000 {
-			reg = <0 0xCC200000 0 0x00800000>;
+		wt_sysm_mem: memory@B8000000 {
+			reg = <0 0xB8000000 0 0x1000>;
 			no-map;
 		};
-		mtp_mem: memory@ac300000 {
+
+		wt_bllog_mem: memory@B8001000 {
+			reg = <0 0xB8001000 0 0x90000>;
+			no-map;
+		};
+
+		wt_brlog_mem: memory@B8091000 {
+			reg = <0 0xB8091000 0 0x10000>;
+			no-map;
+		};
+
+		param_mem: memory@CC200000 {
+			reg = <0 0xCC200000 0 0x00100000>;
+			no-map;
+		};
+
+		mtp_mem: memory@AC300000 {
 			reg = <0 0xAC300000 0 0x00B00000>;
 			no-map;
 		};
 
 		bootloader_log_mem: memory@9FFF7000 {
-			reg = <0 0x9FFF7000 0 0x00009000>;
+			reg = <0 0x9FFF7000 0 0x00008000>;
 			no-map;
 		};
+
 		ramoops@CBE00000 {
 			compatible = "ramoops";
 			reg = <0 0xCBE00000 0 0x00400000>;
-			record-size =  <0x40000>; //256x1024
+			record-size = <0x40000>;  //256x1024
 			console-size = <0x40000>;
-			ftrace-size =  <0x40000>;
-			pmsg-size=		 <0x200000>;
-			ecc-size=		  <0x0>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x200000>;
+			ecc-size = <0x0>;
 		};
 	};
 };
