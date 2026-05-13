@@ -468,11 +468,8 @@
 	};
 };
 
-/* &dispcc disabled to use simplefb and prevent display
-   going black after a few seconds */
-
 &dispcc {
-	status = "disabled";
+	status = "okay";
 };
 
 &gpu {
@@ -622,6 +619,53 @@
 	status = "okay";
 };
 
+&mdss {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l22a>;
+
+	status = "okay";
+
+	panel@0 {
+		compatible = "tianma,hx83112f-fhd";
+		reg = <0>;
+
+		reset-gpios = <&pm6150l_gpios 9 GPIO_ACTIVE_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_reset_pin &te_gpio>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	remote-endpoint = <&panel_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l18a>;
+
+	status = "okay";
+};
+
+&pm6150l_gpios {
+	panel_reset_pin: panel-reset-state {
+		pins = "gpio9";
+		function = "func1";
+		power-source = <1>;
+		bias-disable;
+		output-low;
+	};
+};
+
 &pm6350_gpios {
 	key_vol_down_default: vol-down-default-state {
 		pins = "gpio2";
@@ -684,6 +728,13 @@
 
 &tlmm {
 	gpio-reserved-ranges = <13 4>, <56 2>;
+
+	te_gpio: te-default-state {
+		pins = "gpio23";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
 
 	qup_uart1_sleep_cts: qup-uart1-sleep-cts-state {
 		pins = "gpio61";
