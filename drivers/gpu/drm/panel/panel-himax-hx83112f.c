@@ -20,19 +20,19 @@
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
 
-struct hx83112_tianma {
+struct hx83112f_panel {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
 	struct drm_dsc_config dsc;
 	struct gpio_desc *reset_gpio;
 };
 
-static inline struct hx83112_tianma *to_hx83112_tianma(struct drm_panel *panel)
+static inline struct hx83112f_panel *to_hx83112f_panel(struct drm_panel *panel)
 {
-	return container_of_const(panel, struct hx83112_tianma, panel);
+	return container_of_const(panel, struct hx83112f_panel, panel);
 }
 
-static void hx83112_tianma_reset(struct hx83112_tianma *ctx)
+static void hx83112f_reset(struct hx83112f_panel *ctx)
 {
 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
 	usleep_range(5000, 6000);
@@ -42,7 +42,7 @@ static void hx83112_tianma_reset(struct hx83112_tianma *ctx)
 	usleep_range(5000, 6000);
 }
 
-static int hx83112_tianma_on(struct hx83112_tianma *ctx)
+static int hx83112f_on(struct hx83112f_panel *ctx)
 {
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
@@ -73,7 +73,7 @@ static int hx83112_tianma_on(struct hx83112_tianma *ctx)
 	return dsi_ctx.accum_err;
 }
 
-static int hx83112_tianma_off(struct hx83112_tianma *ctx)
+static int hx83112f_off(struct hx83112f_panel *ctx)
 {
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
@@ -85,16 +85,16 @@ static int hx83112_tianma_off(struct hx83112_tianma *ctx)
 	return dsi_ctx.accum_err;
 }
 
-static int hx83112_tianma_prepare(struct drm_panel *panel)
+static int hx83112f_prepare(struct drm_panel *panel)
 {
-	struct hx83112_tianma *ctx = to_hx83112_tianma(panel);
+	struct hx83112f_panel *ctx = to_hx83112f_panel(panel);
 	struct device *dev = &ctx->dsi->dev;
 	struct drm_dsc_picture_parameter_set pps;
 	int ret;
 
-	hx83112_tianma_reset(ctx);
+	hx83112f_reset(ctx);
 
-	ret = hx83112_tianma_on(ctx);
+	ret = hx83112f_on(ctx);
 	if (ret < 0) {
 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
 		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
@@ -120,13 +120,13 @@ static int hx83112_tianma_prepare(struct drm_panel *panel)
 	return 0;
 }
 
-static int hx83112_tianma_unprepare(struct drm_panel *panel)
+static int hx83112f_unprepare(struct drm_panel *panel)
 {
-	struct hx83112_tianma *ctx = to_hx83112_tianma(panel);
+	struct hx83112f_panel *ctx = to_hx83112f_panel(panel);
 	struct device *dev = &ctx->dsi->dev;
 	int ret;
 
-	ret = hx83112_tianma_off(ctx);
+	ret = hx83112f_off(ctx);
 	if (ret < 0)
 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
 
@@ -135,7 +135,7 @@ static int hx83112_tianma_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-static const struct drm_display_mode hx83112_tianma_mode = {
+static const struct drm_display_mode hx83112f_mode = {
 	.clock = (1080 + 52 + 29 + 70) * (2400 + 1300 + 15 + 15) * 60 / 1000,
 	.hdisplay = 1080,
 	.hsync_start = 1080 + 52,
@@ -150,26 +150,26 @@ static const struct drm_display_mode hx83112_tianma_mode = {
 	.type = DRM_MODE_TYPE_DRIVER,
 };
 
-static int hx83112_tianma_get_modes(struct drm_panel *panel,
+static int hx83112f_get_modes(struct drm_panel *panel,
 				    struct drm_connector *connector)
 {
-	return drm_connector_helper_get_modes_fixed(connector, &hx83112_tianma_mode);
+	return drm_connector_helper_get_modes_fixed(connector, &hx83112f_mode);
 }
 
-static const struct drm_panel_funcs hx83112_tianma_panel_funcs = {
-	.prepare = hx83112_tianma_prepare,
-	.unprepare = hx83112_tianma_unprepare,
-	.get_modes = hx83112_tianma_get_modes,
+static const struct drm_panel_funcs hx83112f_panel_funcs = {
+	.prepare = hx83112f_prepare,
+	.unprepare = hx83112f_unprepare,
+	.get_modes = hx83112f_get_modes,
 };
 
-static int hx83112_tianma_probe(struct mipi_dsi_device *dsi)
+static int hx83112f_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
-	struct hx83112_tianma *ctx;
+	struct hx83112f_panel *ctx;
 	int ret;
 
-	ctx = devm_drm_panel_alloc(dev, struct hx83112_tianma, panel,
-				   &hx83112_tianma_panel_funcs,
+	ctx = devm_drm_panel_alloc(dev, struct hx83112f_panel, panel,
+				   &hx83112f_panel_funcs,
 				   DRM_MODE_CONNECTOR_DSI);
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
@@ -219,9 +219,9 @@ static int hx83112_tianma_probe(struct mipi_dsi_device *dsi)
 	return 0;
 }
 
-static void hx83112_tianma_remove(struct mipi_dsi_device *dsi)
+static void hx83112f_remove(struct mipi_dsi_device *dsi)
 {
-	struct hx83112_tianma *ctx = mipi_dsi_get_drvdata(dsi);
+	struct hx83112f_panel *ctx = mipi_dsi_get_drvdata(dsi);
 	int ret;
 
 	ret = mipi_dsi_detach(dsi);
@@ -231,22 +231,21 @@ static void hx83112_tianma_remove(struct mipi_dsi_device *dsi)
 	drm_panel_remove(&ctx->panel);
 }
 
-static const struct of_device_id hx83112_tianma_of_match[] = {
-	{ .compatible = "mdss,hx83112-tianma" }, // FIXME
+static const struct of_device_id hx83112f_of_match[] = {
+	{ .compatible = "tianma,hx83112f-fhd" },
 	{ /* sentinel */ }
 };
-MODULE_DEVICE_TABLE(of, hx83112_tianma_of_match);
+MODULE_DEVICE_TABLE(of, hx83112f_of_match);
 
-static struct mipi_dsi_driver hx83112_tianma_driver = {
-	.probe = hx83112_tianma_probe,
-	.remove = hx83112_tianma_remove,
+static struct mipi_dsi_driver hx83112f_driver = {
+	.probe = hx83112f_probe,
+	.remove = hx83112f_remove,
 	.driver = {
-		.name = "panel-hx83112-tianma",
-		.of_match_table = hx83112_tianma_of_match,
+		.name = "panel-hx83112f-tianma",
+		.of_match_table = hx83112f_of_match,
 	},
 };
-module_mipi_dsi_driver(hx83112_tianma_driver);
+module_mipi_dsi_driver(hx83112f_driver);
 
-MODULE_AUTHOR("linux-mdss-dsi-panel-driver-generator <fix@me>"); // FIXME
 MODULE_DESCRIPTION("DRM driver for hx83112_fhd_video_tianma");
 MODULE_LICENSE("GPL");
