@@ -1,2 +1,1 @@
-source "drivers/oneplus/input/touchscreen_himax/himax/hx83112f_noflash/Kconfig"
-
+source "drivers/input/touchscreen/touchscreen_himax/himax/hx83112f_noflash/Kconfig"
