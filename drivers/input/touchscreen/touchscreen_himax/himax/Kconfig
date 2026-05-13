@@ -1,0 +1,1 @@
+source "drivers/input/touchscreen/touchscreen_himax/himax/hx83112f_noflash/Kconfig"

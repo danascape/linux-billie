@@ -1,0 +1,6 @@
+
+config TOUCHPANEL_ONEPLUS
+	default y
+	bool "TP Synaptics "
+
+
