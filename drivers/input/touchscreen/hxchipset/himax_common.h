@@ -464,6 +464,7 @@ struct himax_ts_data {
 
 	struct hrtimer timer;
 	struct i2c_client *client;
+	struct regmap *regmap;
 	struct himax_i2c_platform_data *pdata;
 	struct himax_virtual_key *button;
 	struct mutex rw_lock;

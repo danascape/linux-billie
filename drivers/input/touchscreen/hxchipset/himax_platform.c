@@ -22,7 +22,26 @@
 #define PINCTRL_STATE_RELEASE	"pmx_ts_release"
 
 int i2c_error_count;
-u8 *gp_rw_buf;
+
+/*
+ * The Himax wire protocol is command-oriented: each transaction is
+ * [reg | reg+data...] for writes, and [reg]-then-read for reads.
+ * That maps cleanly to a regmap with 8-bit register and 8-bit value
+ * width. We keep the public himax_bus_read/write/write_command
+ * symbols as thin shims so the IC handlers (incl. the kallsyms-based
+ * modular ones in himax_modular.h) keep working unchanged.
+ *
+ * Zero-length writes (used by himax_bus_write_command to poke a
+ * single command byte at the IC) bypass regmap because
+ * regmap_raw_write rejects val_count == 0; we issue the byte
+ * directly via the underlying bus.
+ */
+static const struct regmap_config himax_i2c_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.cache_type = REGCACHE_NONE,
+	.max_register = 0xff,
+};
 
 #if defined(HX_CONFIG_DRM)
 struct drm_panel *active_panel;
@@ -276,35 +295,20 @@ EXPORT_SYMBOL(himax_parse_dt);
 int himax_bus_read(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry)
 {
-	int retry;
-	struct i2c_client *client = private_ts->client;
-	struct i2c_msg msg[] = {
-		{
-			.addr = client->addr,
-			.flags = 0,
-			.len = 1,
-			.buf = &command,
-		},
-		{
-			.addr = client->addr,
-			.flags = I2C_M_RD,
-			.len = length,
-			.buf = gp_rw_buf,
-		}
-	};
+	int retry, ret = -EIO;
+
 	mutex_lock(&private_ts->rw_lock);
 
 	for (retry = 0; retry < toRetry; retry++) {
-		if (i2c_transfer(client->adapter, msg, 2) == 2) {
-			memcpy(data, gp_rw_buf, length);
+		ret = regmap_bulk_read(private_ts->regmap, command,
+				data, length);
+		if (!ret)
 			break;
-		}
-		/*msleep(20);*/
 	}
 
 	if (retry == toRetry) {
-		E("%s: i2c_read_block retry over %d\n",
-		  __func__, toRetry);
+		E("%s: bus read retry over %d (err=%d)\n",
+		  __func__, toRetry, ret);
 		i2c_error_count = toRetry;
 		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
@@ -318,33 +322,29 @@ EXPORT_SYMBOL(himax_bus_read);
 int himax_bus_write(uint8_t command, uint8_t *data,
 		uint32_t length, uint8_t toRetry)
 {
-	int retry/*, loop_i*/;
 	struct i2c_client *client = private_ts->client;
-	struct i2c_msg msg[] = {
-		{
-			.addr = client->addr,
-			.flags = 0,
-			.len = length + 1,
-			.buf = gp_rw_buf,
-		}
-	};
-
+	int retry, ret = -EIO;
 
 	mutex_lock(&private_ts->rw_lock);
-	gp_rw_buf[0] = command;
-	if (data != NULL)
-		memcpy(gp_rw_buf + 1, data, length);
 
 	for (retry = 0; retry < toRetry; retry++) {
-		if (i2c_transfer(client->adapter, msg, 1) == 1)
+		if (length == 0) {
+			/* Command-only poke: regmap_raw_write rejects
+			 * val_count == 0, so issue the byte directly.
+			 */
+			ret = i2c_master_send(client, &command, 1);
+			ret = (ret == 1) ? 0 : -EIO;
+		} else {
+			ret = regmap_raw_write(private_ts->regmap, command,
+					data, length);
+		}
+		if (!ret)
 			break;
-
-		/*msleep(20);*/
 	}
 
 	if (retry == toRetry) {
-		E("%s: i2c_write_block retry over %d\n",
-		  __func__, toRetry);
+		E("%s: bus write retry over %d (err=%d)\n",
+		  __func__, toRetry, ret);
 		i2c_error_count = toRetry;
 		mutex_unlock(&private_ts->rw_lock);
 		return -EIO;
@@ -1078,13 +1078,6 @@ static int himax_chip_common_probe(struct i2c_client *client)
 
 	I("%s:Enter\n", __func__);
 
-	gp_rw_buf = kcalloc(BUS_RW_MAX_LEN, sizeof(uint8_t), GFP_KERNEL);
-	if (!gp_rw_buf) {
-		E("Allocate I2C RW Buffer failed\n");
-		ret = -ENODEV;
-		goto err_alloc_rw_buf_failed;
-	}
-
 	/* Check I2C functionality */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		E("%s: i2c check functionality error\n", __func__);
@@ -1115,6 +1108,13 @@ static int himax_chip_common_probe(struct i2c_client *client)
 	mutex_init(&ts->rw_lock);
 	private_ts = ts;
 
+	ts->regmap = devm_regmap_init_i2c(client, &himax_i2c_regmap_config);
+	if (IS_ERR(ts->regmap)) {
+		ret = PTR_ERR(ts->regmap);
+		E("%s: regmap init failed (%d)\n", __func__, ret);
+		goto err_common_init_failed;
+	}
+
 	ret = himax_ts_pinctrl_init(ts);
 	if (ret || ts->ts_pinctrl == NULL)
 		E(" Pinctrl init failed\n");
@@ -1137,8 +1137,6 @@ static int himax_chip_common_probe(struct i2c_client *client)
 err_common_init_failed:
 	kfree(ts);
 err_alloc_data_failed:
-	kfree(gp_rw_buf);
-err_alloc_rw_buf_failed:
 
 	return ret;
 }
@@ -1147,8 +1145,6 @@ static void himax_chip_common_remove(struct i2c_client *client)
 {
 	if (g_hx_chip_inited)
 		himax_chip_common_deinit();
-
-	kfree(gp_rw_buf);
 }
 
 static const struct i2c_device_id himax_common_ts_id[] = {
