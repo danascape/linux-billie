@@ -489,20 +489,41 @@
 
 	touchscreen@0 {
 		compatible = "himax,hxcommon";
-		reg = <0x00>;
+		reg = <0>;
+		chip-name = "hx83112f";
 		spi-max-frequency = <10000000>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <22 IRQ_TYPE_LEVEL_LOW>;
-		himax,panel-coords = <0 1080 0 2400>;
-		himax,display-coords = <0 1080 0 2400>;
-		himax,irq-gpio = <&tlmm 22 IRQ_TYPE_LEVEL_LOW>;
-		himax,rst-gpio = <&tlmm 21 0x00>;
-		himax,cs-gpio = <&tlmm 3 0x00>;
-		report_type = <1>;
+		spi-cpha;
 
-		//panel = <&dsi_hx83112_tianma_fhd_video>;
-		//chip-name = "hx83112f";
+		interrupt-parent = <&tlmm>;
+		interrupts = <22 IRQ_TYPE_EDGE_FALLING>;
+
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+		pinctrl-0 = <&ts_irq_active &ts_rst_active>;
+		pinctrl-1 = <&ts_irq_suspend &ts_rst_suspend>;
+		pinctrl-2 = <&ts_pins_release>;
+
+		touchpanel,max-num-support = <10>;
+		touchpanel,panel-coords = <1080 2400>;
+		touchpanel,display-coords = <1080 2400>;
+		touchpanel,irq-gpio = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
+		touchpanel,reset-gpio = <&tlmm 21 0x00>;
+		touchpanel,tx-rx-num = <16 36>;
+		touchpanel,button-type = <4>;
+
+		incell_screen;
+		noflash_support = <1>;
+		black_gesture_support = <1>;
+		fw_edge_limit_support = <1>;
+		charge_detect_support = <1>;
 	};
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
+&qupv3_id_0 {
+	status = "okay";
 };
 
 &qupv3_id_1 {
@@ -770,6 +791,43 @@
 	pm8008_interrupt: pm8008-interrupt-state {
 		pins = "gpio59";
 		function = "gpio";
+		bias-disable;
+	};
+
+	ts_irq_active: ts-irq-active-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	ts_rst_active: ts-reset-active-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+		output-high;
+	};
+
+	ts_irq_suspend: ts-irq-suspend-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	ts_rst_suspend: ts-reset-suspend-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-low;
+	};
+
+	ts_pins_release: ts-release-state {
+		pins = "gpio21", "gpio22";
+		function = "gpio";
+		drive-strength = <2>;
 		bias-disable;
 	};
 };

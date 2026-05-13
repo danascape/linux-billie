@@ -40,7 +40,6 @@
 #endif
 
 #include <linux/spi/spi.h>
-#include <drm/drm_panel.h>
 
 
 #include "hx83112f_noflash.h"
@@ -6859,32 +6858,6 @@ static void himax_init_op_apk_op(struct touchpanel_data *ts)
 }
 #endif
 
-static int check_dt(struct device_node *np)
-{
-	int i;
-	int count;
-	struct device_node *node;
-	struct drm_panel *panel;
-
-	count = of_count_phandle_with_args(np, "panel", NULL);
-	TPD_INFO("count is %d\n", count);
-	if (count <= 0)
-		return -ENODEV;
-
-	for (i = 0; i < count; i++) {
-		node = of_parse_phandle(np, "panel", i);
-		TPD_INFO("node name is %s\n", node->name);
-		panel = of_drm_find_panel(node);
-		if (!IS_ERR(panel)) {
-			//get_lcd_name(node->name);
-			return 0;
-		}
-		of_node_put(node);
-		TPD_INFO("%s: error3\n", __func__);
-	}
-
-	return -ENODEV;
-}
 
 static int hx83112f_tp_probe(struct spi_device *spi)
 {
@@ -6894,12 +6867,6 @@ static int hx83112f_tp_probe(struct spi_device *spi)
 	int ret = -1;
 
 	TPD_INFO("%s  is called\n", __func__);
-	ret = check_dt(dp);
-	if (ret != 0) {
-		ret = -EPROBE_DEFER;
-		TPD_INFO("check dt failed ret is %d\n", ret);
-		return ret;
-	}
 
 	//step1:Alloc chip_info
 	chip_info = kzalloc(sizeof(struct chip_data_hx83112f), GFP_KERNEL);
@@ -7022,6 +6989,8 @@ static int hx83112f_tp_probe(struct spi_device *spi)
 	hx83112f_enable_interrupt(chip_info, false);
 	if (ts->boot_mode == MSM_BOOT_MODE_RECOVERY)
 		schedule_delayed_work(&ts->fw_update_delayed_work, msecs_to_jiffies(4500));
+	else
+		schedule_delayed_work(&ts->fw_update_delayed_work, msecs_to_jiffies(15000));
 	return 0;
 err_spi_setup:
 	if (chip_info->g_fw_buf)
@@ -7115,14 +7084,18 @@ static int hx83112f_i2c_resume(struct device *dev)
 }
 
 static const struct spi_device_id tp_id[] = {
-	{ TPD_DEVICE, 0 },
+	{ "hxcommon", 0 },	/* vendor-stripped from "himax,hxcommon" */
+	{ "himax", 0 },	/* vendor-stripped from "himax,hxcommon" */
+	{ "himax,hxcommon" },	/* vendor-stripped from "himax,hxcommon" */
 	{ }
 };
+MODULE_DEVICE_TABLE(spi, tp_id);
 
 static const struct of_device_id tp_match_table[] = {
-	{ .compatible = TPD_DEVICE,},
+	{ .compatible = TPD_DEVICE, },
 	{ },
 };
+MODULE_DEVICE_TABLE(of, tp_match_table);
 
 static const struct dev_pm_ops tp_pm_ops = {
 	.suspend = hx83112f_i2c_suspend,
