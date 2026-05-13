@@ -37,6 +37,7 @@
 
 	aliases {
 		serial0 = &uart9;
+		serial1 = &uart1;
 	};
 
 	chosen {
@@ -556,34 +557,48 @@
 	status = "okay";
 };
 
+&qup_uart1_cts {
+	bias-bus-hold;
+};
+
+&qup_uart1_rts {
+	drive-strength = <2>;
+	bias-disable;
+};
+
+&qup_uart1_rx {
+	bias-pull-up;
+};
+
+&qup_uart1_tx {
+	drive-strength = <2>;
+	bias-disable;
+};
+
 &tlmm {
 	gpio-reserved-ranges = <13 4>, <56 2>;
 
-	qup_uart1_ctsrtsrx: qup-uart1-ctsrtsrx-default-state {
-		pins = "gpio61", "gpio62", "gpio64";
+	qup_uart1_sleep_cts: qup-uart1-sleep-cts-state {
+		pins = "gpio61";
 		function = "gpio";
-		drive-strength = <0x02>;
-		bias-pull-down;
+		bias-bus-hold;
 	};
 
-	qup_uart1_active_ctsrx: qup-uart1-active-ctsrx-state {
-		pins = "gpio61", "gpio64";
-		function = "qup01";
-		drive-strength = <0x02>;
-		bias-disable;
-	};
-
-	qup_uart1_active_rts: qup-uart1-active-rts-state {
+	qup_uart1_sleep_rts: qup-uart1-sleep-rts-state {
 		pins = "gpio62";
-		function = "qup01";
-		drive-strength = <0x02>;
+		function = "gpio";
 		bias-pull-down;
 	};
 
-	qup_uart1_active_tx: qup-uart1-active-tx-state {
+	qup_uart1_sleep_rx: qup-uart1-sleep-rx-state {
+		pins = "gpio64";
+		function = "gpio";
+		bias-pull-up;
+	};
+
+	qup_uart1_sleep_tx: qup-uart1-sleep-tx-state {
 		pins = "gpio63";
-		function = "qup01";
-		drive-strength = <0x02>;
+		function = "gpio";
 		bias-pull-up;
 	};
 
@@ -603,44 +618,22 @@
 
 &uart1 {
 	/delete-property/ interrupts;
-	/*
-	 * in fdt: interrupts-extended = <0x01 0x00 0x25a 0x04 0xca 0x40 0x04>
-	 *   <0x0> -> interrupt-controller@17a00000 -> intc
-	 *   GIC_SPI = 0
-	 *   0x25a = 602
-	 *   IRQ_TYPE_LEVEL_HIGH = 4
-	 *   <0xca> = pinctrl@f100000 -> tlmm
-	 *   0x40 = 64
-	 *   IRQ_TYPE_LEVEL_HIGH = 4
-	 */
 	interrupts-extended = <&intc GIC_SPI 602 IRQ_TYPE_LEVEL_HIGH>,
-			      <&tlmm 64 IRQ_TYPE_LEVEL_HIGH>;
+			      <&tlmm 64 IRQ_TYPE_EDGE_FALLING>;
+
 	pinctrl-names = "default", "sleep";
-	/*
-	 * in fdt:
-	 *   pinctrl-0 = <0x192 0x193>;
-	 *   <0x192> -> qupv3_se1_default_ctsrtsrx, <0x193> -> qupv3_se1_default_tx
-	 */
-	pinctrl-0 = <&qup_uart1_ctsrtsrx &qup_uart1_tx>;
-	/*
-	 * in fdt:
-	 *   pinctrl-1 = <0x194 0x195 0x196>;
-	 *   pinctrl-2 = <0x194 0x195 0x196>;
-	 *   <0x194> -> qupv3_se1_ctsrx, <0x195> -> qupv3_se1_rts, <0x196> -> qupv3_se1_tx
-	 */
-	pinctrl-1 = <&qup_uart1_active_ctsrx &qup_uart1_active_rts &qup_uart1_active_tx>;
+	pinctrl-1 = <&qup_uart1_sleep_cts>, <&qup_uart1_sleep_rts>,
+		    <&qup_uart1_sleep_tx>, <&qup_uart1_sleep_rx>;
 
 	status = "okay";
 
 	bluetooth {
-		compatible = "qcom,wcn3990-bt";
-
+		compatible = "qcom,wcn3991-bt";
 		vddio-supply = <&vreg_l11a>;
 		vddxo-supply = <&vreg_l7a>;
 		vddrf-supply = <&vreg_l2e>;
 		vddch0-supply = <&vreg_l10e>;
-		
-		max-speed = <3200000>;
+		swctrl-gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>;
 	};
 };
 
