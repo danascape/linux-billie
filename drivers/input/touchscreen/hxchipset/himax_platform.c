@@ -1165,6 +1165,20 @@ int drm_notifier_callback(struct notifier_block *self,
 }
 #endif
 
+/* keep the legacy probe-time MCF read out of the probe core so the
+ * no-flash path (where HX_TP_PROC_GUEST_INFO is undefined and the
+ * read_mcf_data hook is therefore absent from struct himax_core_fp)
+ * still compiles cleanly.
+ */
+#if defined(HX_TP_PROC_GUEST_INFO)
+static inline void himax_chip_common_read_mcf(void)
+{
+	g_core_fp.read_mcf_data();
+}
+#else
+static inline void himax_chip_common_read_mcf(void) { }
+#endif
+
 /*
  * Bus-agnostic probe tail. By the time we get here the bus-specific
  * probe has already populated ts->dev, ts->bus_ops, ts->regmap, and
@@ -1194,7 +1208,7 @@ static int himax_chip_common_probe_core(struct himax_ts_data *ts)
 		return ret;
 	}
 
-	g_core_fp.read_mcf_data();
+	himax_chip_common_read_mcf();
 	return 0;
 }
 

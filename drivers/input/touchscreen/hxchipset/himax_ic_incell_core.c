@@ -52,8 +52,10 @@ static uint8_t *g_internal_buffer;
 uint32_t dbg_reg_ary[4] = {fw_addr_fw_dbg_msg_addr, fw_addr_chk_fw_status,
 	fw_addr_chk_dd_status, fw_addr_flag_reset_event};
 
+#if defined(HX_TP_PROC_GUEST_INFO)
 u8 panel_mcf_data[512] = {0};
 static int hx_read_mcf_data(void);
+#endif
 /* CORE_IC */
 /* IC side start*/
 static void himax_mcu_burst_enable(uint8_t auto_add_4_byte)
@@ -4244,8 +4246,8 @@ static void himax_mcu_fp_init(void)
 #if defined(HX_TP_PROC_GUEST_INFO)
 	g_core_fp.guest_info_get_status = himax_guest_info_get_status;
 	g_core_fp.read_guest_info = hx_read_guest_info;
-#endif
 	g_core_fp.read_mcf_data = hx_read_mcf_data;
+#endif
 /* CORE_DRIVER */
 #if defined(HX_ZERO_FLASH)
 	g_core_fp.fp_reload_disable = hx_dis_rload_0f;
