@@ -662,6 +662,7 @@
 		compatible = "tianma,hx83112f-fhd";
 		reg = <0>;
 
+		backlight = <&pm6150l_wled>;
 		reset-gpios = <&pm6150l_gpios 9 GPIO_ACTIVE_LOW>;
 
 		vddio-supply = <&vreg_l1e>;
@@ -698,6 +699,14 @@
 		bias-disable;
 		output-low;
 	};
+};
+
+&pm6150l_wled {
+	qcom,switching-freq = <800>;
+	qcom,current-limit-microamp = <20000>;
+	qcom,num-strings = <2>;
+
+	status = "okay";
 };
 
 &pm6350_gpios {

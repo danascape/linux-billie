@@ -697,38 +697,8 @@ static int dsi_phy_driver_probe(struct platform_device *pdev)
 					     "PLL init failed; need separate clk driver\n");
 	}
 
-	/*
-	 * Some display-controller clocks (e.g. dispcc disp_cc_mdss_pclk0_clk_src
-	 * with CLK_OPS_PARENT_ENABLE) are registered before this PHY's clock
-	 * provider exists and may carry a non-zero prepare_count inherited from
-	 * bootloader handoff. When devm_of_clk_add_hw_provider() below registers
-	 * our clocks, the orphan-reparent machinery synchronously prepares the
-	 * new parent chain, which propagates into the PHY's PLL prepare hook.
-	 * Without the PHY's analog supply enabled and runtime PM resumed, the
-	 * PLL cannot lock and the clock framework's bookkeeping diverges from
-	 * the hardware state.
-	 *
-	 * Briefly bring the PHY into a state where a PLL prepare can succeed
-	 * for the duration of provider registration.
-	 */
-	ret = pm_runtime_resume_and_get(dev);
-	if (ret < 0)
-		return dev_err_probe(dev, ret,
-				     "resume failed before clk provider register\n");
-
-	ret = regulator_bulk_enable(phy->cfg->num_regulators, phy->supplies);
-	if (ret) {
-		pm_runtime_put_sync(dev);
-		return dev_err_probe(dev, ret,
-				     "supply enable failed before clk provider register\n");
-	}
-
 	ret = devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get,
 				     phy->provided_clocks);
-
-	regulator_bulk_disable(phy->cfg->num_regulators, phy->supplies);
-	pm_runtime_put_sync(dev);
-
 	if (ret)
 		return dev_err_probe(dev, ret,
 				     "Failed to register clk provider\n");
