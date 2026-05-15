@@ -664,7 +664,7 @@
 
 		reset-gpios = <&pm6150l_gpios 9 GPIO_ACTIVE_LOW>;
 
-		vddio-supply = <&vreg_l11a>;
+		vddio-supply = <&vreg_l1e>;
 		vsp-supply = <&lcdb_dummy>;
 		vsn-supply = <&lcdb_dummy>;
 
