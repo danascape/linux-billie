@@ -3817,11 +3817,13 @@ static int init_input_device(struct touchpanel_data *ts)
 		}
 
 		ps_input_dev->name = TPD_DEVICE"_ps";
+		ps_input_dev->dev.parent = ts->dev;
 		set_bit(EV_MSC, ps_input_dev->evbit);
 		set_bit(MSC_RAW, ps_input_dev->mscbit);
 	}
 
 	ts->input_dev->name = TPD_DEVICE;
+	ts->input_dev->dev.parent = ts->dev;
 	set_bit(EV_SYN, ts->input_dev->evbit);
 	set_bit(EV_ABS, ts->input_dev->evbit);
 	set_bit(EV_KEY, ts->input_dev->evbit);
@@ -3836,6 +3838,7 @@ static int init_input_device(struct touchpanel_data *ts)
 	}
 
 	ts->kpd_input_dev->name = TPD_DEVICE"_kpd";
+	ts->kpd_input_dev->dev.parent = ts->dev;
 	set_bit(EV_KEY, ts->kpd_input_dev->evbit);
 	set_bit(EV_SYN, ts->kpd_input_dev->evbit);
 
