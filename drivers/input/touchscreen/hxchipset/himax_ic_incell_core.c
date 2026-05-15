@@ -198,9 +198,13 @@ static int himax_mcu_register_write(uint8_t *write_addr, uint32_t write_length,
 	if (cfg_flag == 0) {
 		total_size_temp = write_length;
 #if defined(HX_ZERO_FLASH)
-		max_bus_size = (write_length > HX_MAX_WRITE_SZ - 4)
-			? (HX_MAX_WRITE_SZ - 4)
-			: write_length;
+		{
+			size_t cap = private_ts->bus_ops->max_xfer_sz;
+
+			if (cap > HX_MAX_WRITE_SZ - 4)
+				cap = HX_MAX_WRITE_SZ - 4;
+			max_bus_size = (write_length > cap) ? cap : write_length;
+		}
 #endif
 
 		tmp_addr[3] = write_addr[3];

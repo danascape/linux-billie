@@ -52,6 +52,7 @@ static int himax_i2c_write_cmd_only(struct himax_ts_data *ts, uint8_t cmd)
 
 const struct himax_bus_ops himax_i2c_bus_ops = {
 	.name = "i2c",
+	.max_xfer_sz = HX_MAX_WRITE_SZ - 4,
 	.write_cmd_only = himax_i2c_write_cmd_only,
 };
 EXPORT_SYMBOL(himax_i2c_bus_ops);
@@ -146,6 +147,15 @@ static int himax_spi_write_cmd_only(struct himax_ts_data *ts, uint8_t cmd)
 
 const struct himax_bus_ops himax_spi_bus_ops = {
 	.name = "spi",
+	/*
+	 * 48 KiB matches the upper bound used by the touchscreen_himax/
+	 * reference driver on non-MTK platforms (himax_mcu_register_write
+	 * in hx83112f_noflash.c). The Himax SRAM-write engine appears to
+	 * stop honouring its address auto-increment somewhere past that
+	 * size, so a single 64 KiB+ SPI burst silently leaves the tail
+	 * of SRAM uninitialised and the IC's hardware CRC mismatches.
+	 */
+	.max_xfer_sz = 49152,
 	.write_cmd_only = himax_spi_write_cmd_only,
 };
 EXPORT_SYMBOL(himax_spi_bus_ops);

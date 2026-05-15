@@ -131,6 +131,15 @@ struct himax_ts_data;
  */
 struct himax_bus_ops {
 	const char *name;
+	/*
+	 * Largest payload (excluding any framing prefix) that the
+	 * underlying transport will accept in a single transaction.
+	 * Used by the no-flash SRAM upload path to chunk multi-KB
+	 * writes; the AHB destination address is re-asserted at the
+	 * start of every chunk so the IC's auto-increment pointer
+	 * stays consistent.
+	 */
+	size_t max_xfer_sz;
 	int (*write_cmd_only)(struct himax_ts_data *ts, uint8_t cmd);
 };
 
