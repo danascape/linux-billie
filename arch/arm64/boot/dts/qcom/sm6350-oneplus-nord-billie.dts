@@ -89,6 +89,12 @@
 	};
 };
 
+&adsp {
+	firmware-name = "qcom/sm6350/billie/adsp.mbn";
+
+	status = "okay";
+};
+
 &apps_rsc {
 	regulators-0 {
 		compatible = "qcom,pm6350-rpmh-regulators";
@@ -342,6 +348,12 @@
 	};
 };
 
+&cdsp {
+	firmware-name = "qcom/sm6350/billie/cdsp.mbn";
+
+	status = "okay";
+};
+
 &dispcc {
 	status = "okay";
 };
@@ -359,6 +371,14 @@
 };
 
 &gpi_dma1 {
+	status = "okay";
+};
+
+&ipa {
+	qcom,gsi-loader = "self";
+	memory-region = <&pil_ipa_fw_mem>;
+	firmware-name = "qcom/sm6350/billie/ipa_fws.mbn";
+
 	status = "okay";
 };
 
@@ -400,6 +420,12 @@
 
 &mdss_dsi0_phy {
 	vdds-supply = <&vreg_l18a>;
+
+	status = "okay";
+};
+
+&mpss {
+	firmware-name = "qcom/sm6350/billie/modem.mbn";
 
 	status = "okay";
 };
