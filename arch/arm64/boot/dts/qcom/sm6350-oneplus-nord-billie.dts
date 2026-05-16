@@ -6,7 +6,9 @@
 
 /dts-v1/;
 
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include "sm6350.dtsi"
+#include "pm6350.dtsi"
 
 / {
 	model = "Oneplus Nord N10 5G";
@@ -31,6 +33,20 @@
 			height = <2400>;
 			stride = <(1080 * 4)>;
 			format = "a8r8g8b8";
+		};
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&key_vol_down_default>;
+
+		key-volume-down {
+			label = "Volume Down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&pm6350_gpios 2 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+			wakeup-source;
 		};
 	};
 
@@ -64,6 +80,21 @@
 
 &dispcc {
 	status = "disabled";
+};
+
+&pm6350_gpios {
+	key_vol_down_default: vol-down-default-state {
+		pins = "gpio2";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		input-enable;
+		bias-pull-up;
+		power-source = <0>;
+	};
+};
+
+&pm6350_resin {
+	linux,code = <KEY_VOLUMEUP>;
+	status = "okay";
 };
 
 &sdhc_2 {
