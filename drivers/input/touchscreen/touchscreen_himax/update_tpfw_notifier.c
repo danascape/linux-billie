@@ -14,7 +14,7 @@
  */
 
 #include <linux/notifier.h>
-#include <linux/update_tpfw_notifier.h>
+#include "update_tpfw_notifier.h"
 
 BLOCKING_NOTIFIER_HEAD(tpfw_notifier_list);
 

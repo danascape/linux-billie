@@ -93,7 +93,6 @@ static int tp_auto_test_read_func(struct seq_file *s, void *v)
 	struct himax_proc_operations *syna_ops;
 //	struct timespec now_time;
 //	struct rtc_time rtc_now_time;
-	mm_segment_t old_fs;
 //	uint8_t data_buf[64];
 //	  int ret = 0;
 	int fd = -1;
@@ -127,19 +126,6 @@ static int tp_auto_test_read_func(struct seq_file *s, void *v)
 
 	mutex_lock(&ts->mutex);
 
-	//step2: create a file to store test data in /sdcard/Tp_Test
-
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-	ksys_mkdir("/sdcard/TpTestReport", 0666);
-	ksys_mkdir("/sdcard/TpTestReport/screenOn", 0666);
-	ksys_mkdir("/sdcard/TpTestReport/screenOn/NG", 0666);
-	ksys_mkdir("/sdcard/TpTestReport/screenOn/OK", 0666);
-
-	ksys_mkdir("/sdcard/TpTestReport/screenOff", 0666);
-	ksys_mkdir("/sdcard/TpTestReport/screenOff/NG", 0666);
-	ksys_mkdir("/sdcard/TpTestReport/screenOff/OK", 0666);
-
 	//step4:init syna_testdata
 	syna_testdata.fd = fd;
 	syna_testdata.TX_NUM = ts->hw_res.TX_NUM;
@@ -151,9 +137,6 @@ static int tp_auto_test_read_func(struct seq_file *s, void *v)
 
 	syna_ops->auto_test(s, ts->chip_data, &syna_testdata);
 
-
-	//step5: close file && release test limit firmware
-	set_fs(old_fs);
 
 	//step6: return to normal mode
 	//ts->ts_ops->reset(ts->chip_data);
@@ -171,19 +154,18 @@ static int tp_auto_test_read_func(struct seq_file *s, void *v)
 
 static int baseline_autotest_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, tp_auto_test_read_func, PDE_DATA(inode));
+	return single_open(file, tp_auto_test_read_func, pde_data(inode));
 }
 
-static const struct file_operations tp_auto_test_proc_fops = {
-	.owner = THIS_MODULE,
-	.open  = baseline_autotest_open,
-	.read  = seq_read,
-	.release = single_release,
+static const struct proc_ops tp_auto_test_proc_fops = {
+	.proc_open  = baseline_autotest_open,
+	.proc_read  = seq_read,
+	.proc_release = single_release,
 };
 
 static ssize_t himax_proc_register_read(struct file *file, char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -209,7 +191,7 @@ static ssize_t himax_proc_register_read(struct file *file, char *buff, size_t le
 
 static ssize_t himax_proc_register_write(struct file *file, const char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -231,15 +213,14 @@ static ssize_t himax_proc_register_write(struct file *file, const char *buff, si
 	return ret;
 }
 
-static const struct file_operations himax_proc_register_ops = {
-	.owner = THIS_MODULE,
-	.read = himax_proc_register_read,
-	.write = himax_proc_register_write,
+static const struct proc_ops himax_proc_register_ops = {
+	.proc_read = himax_proc_register_read,
+	.proc_write = himax_proc_register_write,
 };
 
 static ssize_t himax_proc_diag_read(struct file *file, char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -263,7 +244,7 @@ static ssize_t himax_proc_diag_read(struct file *file, char *buff, size_t len, l
 
 static ssize_t himax_proc_diag_write(struct file *file, const char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -283,15 +264,14 @@ static ssize_t himax_proc_diag_write(struct file *file, const char *buff, size_t
 	return ret;
 }
 
-static const struct file_operations himax_proc_diag_ops = {
-	.owner = THIS_MODULE,
-	.read = himax_proc_diag_read,
-	.write = himax_proc_diag_write,
+static const struct proc_ops himax_proc_diag_ops = {
+	.proc_read = himax_proc_diag_read,
+	.proc_write = himax_proc_diag_write,
 };
 
 static ssize_t himax_proc_DD_debug_read(struct file *file, char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -315,7 +295,7 @@ static ssize_t himax_proc_DD_debug_read(struct file *file, char *buff, size_t le
 
 static ssize_t himax_proc_DD_debug_write(struct file *file, const char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -335,15 +315,14 @@ static ssize_t himax_proc_DD_debug_write(struct file *file, const char *buff, si
 	return ret;
 }
 
-static const struct file_operations himax_proc_dd_debug_ops = {
-	.owner = THIS_MODULE,
-	.read = himax_proc_DD_debug_read,
-	.write = himax_proc_DD_debug_write,
+static const struct proc_ops himax_proc_dd_debug_ops = {
+	.proc_read = himax_proc_DD_debug_read,
+	.proc_write = himax_proc_DD_debug_write,
 };
 
 static ssize_t himax_proc_FW_debug_read(struct file *file, char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -363,14 +342,13 @@ static ssize_t himax_proc_FW_debug_read(struct file *file, char *buff, size_t le
 	return ret;
 }
 
-static const struct file_operations himax_proc_fw_debug_ops = {
-	.owner = THIS_MODULE,
-	.read = himax_proc_FW_debug_read,
+static const struct proc_ops himax_proc_fw_debug_ops = {
+	.proc_read = himax_proc_FW_debug_read,
 };
 
 static ssize_t himax_proc_reset_write(struct file *file, const char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -390,14 +368,13 @@ static ssize_t himax_proc_reset_write(struct file *file, const char *buff, size_
 	return ret;
 }
 
-static const struct file_operations himax_proc_reset_ops = {
-	.owner = THIS_MODULE,
-	.write = himax_proc_reset_write,
+static const struct proc_ops himax_proc_reset_ops = {
+	.proc_write = himax_proc_reset_write,
 };
 
 static ssize_t himax_proc_sense_on_off_write(struct file *file, const char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -417,14 +394,13 @@ static ssize_t himax_proc_sense_on_off_write(struct file *file, const char *buff
 	return ret;
 }
 
-static const struct file_operations himax_proc_sense_on_off_ops = {
-	.owner = THIS_MODULE,
-	.write = himax_proc_sense_on_off_write,
+static const struct proc_ops himax_proc_sense_on_off_ops = {
+	.proc_write = himax_proc_sense_on_off_write,
 };
 
 static ssize_t himax_proc_vendor_read(struct file *file, char *buff, size_t len, loff_t *pos)
 {
-	struct touchpanel_data *ts = PDE_DATA(file_inode(file));
+	struct touchpanel_data *ts = pde_data(file_inode(file));
 	struct himax_proc_operations *syna_ops;
 	ssize_t ret = 0;
 
@@ -444,9 +420,8 @@ static ssize_t himax_proc_vendor_read(struct file *file, char *buff, size_t len,
 	return ret;
 }
 
-static const struct file_operations himax_proc_vendor_ops = {
-	.owner = THIS_MODULE,
-	.read = himax_proc_vendor_read,
+static const struct proc_ops himax_proc_vendor_ops = {
+	.proc_read = himax_proc_vendor_read,
 };
 
 int himax_create_proc(struct touchpanel_data *ts, struct himax_proc_operations *syna_ops)
