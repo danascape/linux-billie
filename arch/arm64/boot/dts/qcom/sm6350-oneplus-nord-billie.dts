@@ -496,11 +496,23 @@
 &spi0 {
 	status = "okay";
 
+	/*
+	 * The HX83112F driver does a 2-transfer SPI message (TX command + RX
+	 * coord burst). The first is small enough for FIFO mode, the second
+	 * spills to GPI DMA, and the GENI controller can briefly deassert
+	 * hardware CS during that mode switch — corrupting the chip's burst
+	 * read pointer and producing per-frame check_sum_cal failures. Drive
+	 * CS as a GPIO instead so the SPI core holds it asserted across the
+	 * whole message regardless of FIFO/DMA boundaries.
+	 */
+	pinctrl-0 = <&qup_spi0_data_clk>;
+	cs-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+
 	touchscreen@0 {
 		compatible = "himax,hxcommon";
 		reg = <0>;
 		chip-name = "hx83112f";
-		spi-max-frequency = <10000000>;
+		spi-max-frequency = <5000000>;
 		spi-cpha;
 
 		interrupt-parent = <&tlmm>;
@@ -524,6 +536,8 @@
 		black_gesture_support = <1>;
 		fw_edge_limit_support = <1>;
 		charge_detect_support = <1>;
+
+		panel = <&dsi_panel>;
 	};
 };
 
@@ -658,7 +672,7 @@
 
 	status = "okay";
 
-	panel@0 {
+	dsi_panel: panel@0 {
 		compatible = "tianma,hx83112f-fhd";
 		reg = <0>;
 
