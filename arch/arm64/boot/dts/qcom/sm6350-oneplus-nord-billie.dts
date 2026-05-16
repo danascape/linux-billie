@@ -9,6 +9,7 @@
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "sm6350.dtsi"
+#include "pm6150l.dtsi"
 #include "pm6350.dtsi"
 
 / {
@@ -20,12 +21,21 @@
 	qcom,msm-id = <434 0x10000>, <459 0x10000>;
 	qcom,board-id = <0x1000b 0>;
 
+	lcdb_dummy: regulator-lcdb-dummy {
+		compatible = "regulator-fixed";
+		regulator-name = "lcdb_dummy";
+		regulator-min-microvolt = <5500000>;
+		regulator-max-microvolt = <5500000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
 
-		stdout-path = "framebuffer0";
+		stdout-path = "serial0:115200n8";
 
 		framebuffer0: framebuffer@a0000000 {
 			compatible = "simple-framebuffer";
@@ -333,7 +343,15 @@
 };
 
 &dispcc {
-	status = "disabled";
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm6350/billie/a615_zap.mbn";
 };
 
 &gpi_dma0 {
@@ -341,6 +359,66 @@
 };
 
 &gpi_dma1 {
+	status = "okay";
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l22a>;
+
+	status = "okay";
+
+	dsi_panel: panel@0 {
+		compatible = "tianma,hx83112f-fhd";
+		reg = <0>;
+
+		backlight = <&pm6150l_wled>;
+		reset-gpios = <&pm6150l_gpios 9 GPIO_ACTIVE_LOW>;
+
+		vddio-supply = <&vreg_l1e>;
+		vsp-supply = <&lcdb_dummy>;
+		vsn-supply = <&lcdb_dummy>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_reset_pin &te_gpio>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	remote-endpoint = <&panel_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l18a>;
+
+	status = "okay";
+};
+
+&pm6150l_gpios {
+	panel_reset_pin: panel-reset-state {
+		pins = "gpio9";
+		function = "func1";
+		power-source = <1>;
+		bias-disable;
+		output-low;
+	};
+};
+
+&pm6150l_wled {
+	qcom,switching-freq = <800>;
+	qcom,current-limit-microamp = <20000>;
+	qcom,num-strings = <2>;
+
 	status = "okay";
 };
 
@@ -375,6 +453,13 @@
 
 &tlmm {
 	gpio-reserved-ranges = <13 4>, <56 2>;
+
+	te_gpio: te-default-state {
+		pins = "gpio23";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
 };
 
 &ufs_mem_hc {
