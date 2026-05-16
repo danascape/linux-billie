@@ -477,6 +477,44 @@
 	cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
 };
 
+&spi0 {
+	status = "okay";
+	pinctrl-0 = <&qup_spi0_data_clk>;
+	cs-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+
+	touchscreen@0 {
+		compatible = "himax,hxcommon";
+		reg = <0>;
+		chip-name = "hx83112f";
+		spi-max-frequency = <5000000>;
+		spi-cpha;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <22 IRQ_TYPE_EDGE_FALLING>;
+
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+		pinctrl-0 = <&ts_irq_active &ts_rst_active>;
+		pinctrl-1 = <&ts_irq_suspend &ts_rst_suspend>;
+		pinctrl-2 = <&ts_pins_release>;
+
+		touchpanel,max-num-support = <10>;
+		touchpanel,panel-coords = <1080 2400>;
+		touchpanel,display-coords = <1080 2400>;
+		touchpanel,irq-gpio = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
+		touchpanel,reset-gpio = <&tlmm 21 0x00>;
+		touchpanel,tx-rx-num = <16 36>;
+		touchpanel,button-type = <4>;
+
+		incell_screen;
+		noflash_support = <1>;
+		black_gesture_support = <1>;
+		fw_edge_limit_support = <1>;
+		charge_detect_support = <1>;
+
+		panel = <&dsi_panel>;
+	};
+};
+
 &tlmm {
 	gpio-reserved-ranges = <13 4>, <56 2>;
 
@@ -485,6 +523,43 @@
 		function = "mdp_vsync";
 		drive-strength = <2>;
 		bias-pull-down;
+	};
+
+	ts_irq_active: ts-irq-active-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	ts_rst_active: ts-reset-active-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+		output-high;
+	};
+
+	ts_irq_suspend: ts-irq-suspend-state {
+		pins = "gpio22";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	ts_rst_suspend: ts-reset-suspend-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-low;
+	};
+
+	ts_pins_release: ts-release-state {
+		pins = "gpio21", "gpio22";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 };
 
