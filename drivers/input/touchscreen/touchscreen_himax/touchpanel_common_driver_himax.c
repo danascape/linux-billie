@@ -908,12 +908,16 @@ static void tp_fw_update_work(struct work_struct *work)
 	uint8_t copy_len = 0;
 	struct touchpanel_data *ts = NULL;
 
-	if (himax_boot_mode == 1)
-		ts = container_of(work, struct touchpanel_data,
-				fw_update_delayed_work.work);
-	else
-		ts = container_of(work, struct touchpanel_data,
-				fw_update_work);
+	/*
+	 * fw_update_work and fw_update_delayed_work share this callback. The
+	 * original code dispatched on the global himax_boot_mode, which was
+	 * brittle (different paths INIT'd different work structs). The
+	 * framework now uniformly schedules fw_update_delayed_work for both
+	 * probe-time auto-load and the /proc immediate-trigger paths (the
+	 * latter using delay=0). So always resolve ts via the delayed_work.
+	 */
+	ts = container_of(work, struct touchpanel_data,
+			fw_update_delayed_work.work);
 	if (ts == NULL)
 		TPD_INFO("%s: %s\n", __func__, __LINE__);
 
@@ -941,6 +945,19 @@ static void tp_fw_update_work(struct work_struct *work)
 #endif
 
 	if (ts->ts_ops->fw_update) {
+		/*
+		 * Wait for the firmware file to become available. The driver
+		 * may probe before the rootfs is mounted (especially on pmOS
+		 * where /lib/firmware lives on the real root, not initramfs),
+		 * so request_firmware() initially fails with -ENOENT. We retry
+		 * with a 1-second sleep between attempts. firmware_request_nowarn()
+		 * suppresses the per-attempt dmesg spam; we log once at the end
+		 * with how many retries it actually took.
+		 *
+		 * retry is initialised to 20 above, giving roughly 20s of
+		 * tolerance. That's enough for a typical pmOS-style boot to
+		 * complete pivot-root and udev settle.
+		 */
 		do {
 			if(ts->firmware_update_type == 0 || ts->firmware_update_type == 1) {
 				if(ts->fw_update_app_support) {
@@ -955,15 +972,11 @@ static void tp_fw_update_work(struct work_struct *work)
 					strlcat(fw_name_fae, postfix, MAX_FW_NAME_LENGTH);
 					strlcat(fw_name_fae, p_node, MAX_FW_NAME_LENGTH);
 					TPD_INFO("fw_name_fae is %s\n", fw_name_fae);
-					ret = request_firmware(&fw, fw_name_fae, ts->dev);
+					ret = firmware_request_nowarn(&fw, fw_name_fae, ts->dev);
 					if (!ret)
 						break;
 				} else {
-					if (himax_boot_mode == 1) {
-						msleep(500);
-						TPD_INFO("request_firmware for recovery\n");
-					}
-					ret = request_firmware(&fw, ts->panel_data.fw_name, ts->dev);
+					ret = firmware_request_nowarn(&fw, ts->panel_data.fw_name, ts->dev);
 					if (!ret)
 						break;
 				}
@@ -972,9 +985,17 @@ static void tp_fw_update_work(struct work_struct *work)
 				if (!ret)
 					break;
 			}
+			/* File not there yet; give userspace a second to mount
+			 * the rootfs / populate /lib/firmware. */
+			msleep(1000);
 		} while((ret < 0) && (--retry > 0));
 
-		TPD_INFO("retry times %d\n", 20 - retry);
+		if (!ret)
+			TPD_INFO("firmware loaded after %d retr%s\n",
+				 20 - retry, (20 - retry) == 1 ? "y" : "ies");
+		else
+			TPD_INFO("firmware %s not found after %d retries (last err %d)\n",
+				 ts->panel_data.fw_name, 20 - retry, ret);
 
 		if (!ret || ts->is_noflash_ic) {
 			do {
@@ -1980,7 +2001,7 @@ static ssize_t proc_fw_update_write(struct file *file, const char __user *page, 
 	if (!ts->force_update && ts->firmware_update_type != 2)
 		ts->force_update = !!val;
 
-	schedule_work(&ts->fw_update_work);
+	schedule_delayed_work(&ts->fw_update_delayed_work, 0);
 
 	ret = wait_for_completion_killable_timeout(&ts->fw_complete, FW_UPDATE_COMPLETE_TIMEOUT);
 	if (ret < 0) {
@@ -2242,7 +2263,7 @@ static ssize_t sec_update_fw_store(struct device *dev, struct device_attribute *
 	if (!ts->force_update && ts->firmware_update_type != 2)
 		ts->force_update = !!val;
 
-	schedule_work(&ts->fw_update_work);
+	schedule_delayed_work(&ts->fw_update_delayed_work, 0);
 
 	ret = wait_for_completion_killable_timeout(&ts->fw_complete, FW_UPDATE_COMPLETE_TIMEOUT);
 	if (ret < 0) {
@@ -4549,6 +4570,20 @@ static int get_lcd_name(const char *str)
 }
 */
 
+/*
+ * Forward declarations for the DRM panel follower hooks; the bodies are
+ * defined later in this file (near tp_suspend/tp_resume). The funcs struct
+ * is referenced from register_common_touch_device() below, so it must be
+ * visible here.
+ */
+static int tp_panel_follower_prepared(struct drm_panel_follower *follower);
+static int tp_panel_follower_unpreparing(struct drm_panel_follower *follower);
+
+static const struct drm_panel_follower_funcs tp_panel_follower_funcs = {
+	.panel_prepared = tp_panel_follower_prepared,
+	.panel_unpreparing = tp_panel_follower_unpreparing,
+};
+
 int register_common_touch_device(struct touchpanel_data *pdata)
 {
 	struct touchpanel_data *ts = pdata;
@@ -4724,6 +4759,27 @@ int register_common_touch_device(struct touchpanel_data *pdata)
 	touchpanel_update_fw_notifier_init(ts);
 
 	ts->fb_notif.notifier_call = tfb_notifier_callback;
+
+	/*
+	 * Hook into the DRM panel lifecycle so the touch chip is properly
+	 * resumed/suspended whenever the LCD wakes up or blanks. Without this
+	 * the chip is left to recover on its own via the ESD watchdog after
+	 * every screen-on, costing ~9 s of dead touch.
+	 *
+	 * If the DT node doesn't have a `panel = <&...>` phandle (or the panel
+	 * isn't a drm_panel), the call returns -ENODEV and we just skip — the
+	 * device will still work, just with the slow ESD-recovery wake path.
+	 */
+	ts->panel_follower.funcs = &tp_panel_follower_funcs;
+	ret = devm_drm_panel_add_follower(ts->dev, &ts->panel_follower);
+	if (ret == -ENODEV) {
+		TPD_INFO("no DRM panel binding in DT, skipping panel follower\n");
+	} else if (ret) {
+		TPD_INFO("failed to register DRM panel follower: %d\n", ret);
+	} else {
+		ts->panel_follower_registered = true;
+		TPD_INFO("registered as DRM panel follower\n");
+	}
 	//step15 : workqueue create(speedup_resume)
 	ts->speedup_resume_wq = create_singlethread_workqueue("speedup_resume_wq");
 	if (!ts->speedup_resume_wq) {
@@ -4732,10 +4788,14 @@ int register_common_touch_device(struct touchpanel_data *pdata)
 	}
 
 	INIT_WORK(&ts->speed_up_work, speedup_resume);
-	if (himax_boot_mode == 0)
-		INIT_WORK(&ts->fw_update_work, tp_fw_update_work);
-	else
-		INIT_DELAYED_WORK(&ts->fw_update_delayed_work, tp_fw_update_work);
+	/*
+	 * Unconditionally use the delayed_work struct so callers can pick a
+	 * delay (probe wants ~15 s so the rootfs is mounted before
+	 * request_firmware fires; /proc triggers use delay=0). The legacy
+	 * fw_update_work member is left untouched; nothing references it now
+	 * but removing it would churn the struct layout.
+	 */
+	INIT_DELAYED_WORK(&ts->fw_update_delayed_work, tp_fw_update_work);
 
 
 	//step 16 : short edge shield
@@ -5344,6 +5404,43 @@ static int tfb_notifier_callback(struct notifier_block *self,
 	return 0;
 }
 //#endif
+
+/*
+ * DRM panel follower callbacks. The touch IC on this device is in-cell with
+ * the LCD: its analog rails come from the same bias supplies, so blanking
+ * the panel effectively resets the chip's registers. We need to drive the
+ * driver's normal suspend/resume sequence in lock-step with the panel
+ * lifecycle, otherwise the chip stays in a degraded state when the screen
+ * is re-enabled and the driver's ESD watchdog has to bail us out via a slow
+ * firmware reflash (~6 s on this device).
+ *
+ * tp_resume / tp_suspend already implement the right chip-side dance for
+ * "LCD on/off" — they were just never being called because the original
+ * fbdev notifier was stubbed out. Wire them up via drm_panel_follower
+ * instead, which is the modern upstream-canonical way to follow a panel.
+ */
+static int tp_panel_follower_prepared(struct drm_panel_follower *follower)
+{
+	struct touchpanel_data *ts =
+		container_of(follower, struct touchpanel_data, panel_follower);
+
+	if (!ts->dev)
+		return 0;
+
+	tp_resume(ts->dev);
+	return 0;
+}
+
+static int tp_panel_follower_unpreparing(struct drm_panel_follower *follower)
+{
+	struct touchpanel_data *ts =
+		container_of(follower, struct touchpanel_data, panel_follower);
+
+	if (!ts->dev)
+		return 0;
+
+	return tp_suspend(ts->dev);
+}
 
 #ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
 void tp_i2c_suspend(struct touchpanel_data *ts)

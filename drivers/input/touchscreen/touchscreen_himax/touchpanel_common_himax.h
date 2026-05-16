@@ -27,6 +27,7 @@
 #include <linux/delay.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
+#include <drm/drm_panel.h>
 
 /* boot_mode stubs — mainline always boots normally */
 #define MSM_BOOT_MODE_RECOVERY  (-1)
@@ -513,6 +514,8 @@ struct touchpanel_data {
 	//#if defined(CONFIG_FB)
 	struct notifier_block fb_notif;                     /*register to control suspend/resume*/
 	//#endif
+	struct drm_panel_follower panel_follower;           /*follow DRM panel prepare/unprepare for screen on/off*/
+	bool panel_follower_registered;
 
 	struct mutex           mutex;                       /*mutex for lock i2c related flow*/
 	struct mutex           mutex_earsense;

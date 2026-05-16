@@ -6987,10 +6987,14 @@ static int hx83112f_tp_probe(struct spi_device *spi)
 	irq_en_cnt = 1;
 	TPD_INFO("%s, probe normal end\n", __func__);
 	hx83112f_enable_interrupt(chip_info, false);
-	if (ts->boot_mode == MSM_BOOT_MODE_RECOVERY)
-		schedule_delayed_work(&ts->fw_update_delayed_work, msecs_to_jiffies(4500));
-	else
-		schedule_delayed_work(&ts->fw_update_delayed_work, msecs_to_jiffies(15000));
+	/*
+	 * Fire the firmware load right after probe. The work itself will
+	 * patiently retry with 1 s gaps until /lib/firmware/<name> appears
+	 * (see the retry loop in tp_fw_update_work). This is faster than a
+	 * fixed delay — touch becomes usable the moment the rootfs is mounted
+	 * rather than at a hard-coded N seconds.
+	 */
+	schedule_delayed_work(&ts->fw_update_delayed_work, 0);
 	return 0;
 err_spi_setup:
 	if (chip_info->g_fw_buf)
