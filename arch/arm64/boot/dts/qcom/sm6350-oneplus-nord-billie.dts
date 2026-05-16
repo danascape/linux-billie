@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2026, Saalim Quadri <danascape@gmail.com>
+ * Copyright (c) 2025, Henri Dellal <henri@sibnsk.net>
+ */
+
+/dts-v1/;
+
+#include "sm6350.dtsi"
+
+/ {
+	model = "Oneplus Nord N10 5G";
+	compatible = "oneplus,billie", "qcom,sm6350";
+	chassis-type = "handset";
+
+	/* required for bootloader to select correct board */
+	qcom,msm-id = <434 0x10000>, <459 0x10000>;
+	qcom,board-id = <0x1000b 0>;
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		stdout-path = "framebuffer0";
+
+		framebuffer0: framebuffer@a0000000 {
+			compatible = "simple-framebuffer";
+			reg = <0x0 0xa0000000 0x0 (1080 * 2400 * 4)>;
+			width = <1080>;
+			height = <2400>;
+			stride = <(1080 * 4)>;
+			format = "a8r8g8b8";
+		};
+	};
+
+	reserved-memory {
+		bootloader-log@9fff7000 {
+			reg = <0x0 0x9fff7000 0x0 0x8000>;
+			no-map;
+		};
+
+		ramoops@cbe00000 {
+			compatible = "ramoops";
+			reg = <0x0 0xcbe00000 0x0 0x400000>;
+			record-size = <0x40000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x200000>;
+			ecc-size = <0x0>;
+		};
+
+		param@cc200000 {
+			reg = <0x0 0xcc200000 0x0 0x100000>;
+			no-map;
+		};
+
+		mtp@cc300000 {
+			reg = <0x0 0xcc300000 0x0 0xb00000>;
+			no-map;
+		};
+	};
+};
+
+&dispcc {
+	status = "disabled";
+};
+
+&sdhc_2 {
+	status = "okay";
+
+	cd-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
+};
+
+&tlmm {
+	gpio-reserved-ranges = <13 4>, <56 2>;
+};
+
+&ufs_mem_hc {
+	status = "okay";
+};
+
+&ufs_mem_phy {
+	status = "okay";
+};
+
+&usb_1 {
+	status = "okay";
+};
+
+&usb_1_dwc3 {
+	maximum-speed = "super-speed";
+	dr_mode = "otg";
+};
+
+&usb_1_hsphy {
+	status = "okay";
+};
+
+&usb_1_qmpphy {
+	status = "okay";
+};
