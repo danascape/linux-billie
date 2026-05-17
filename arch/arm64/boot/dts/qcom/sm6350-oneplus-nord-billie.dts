@@ -21,6 +21,11 @@
 	qcom,msm-id = <434 0x10000>, <459 0x10000>;
 	qcom,board-id = <0x1000b 0>;
 
+	aliases {
+		serial0 = &uart9;
+		serial1 = &uart1;
+	};
+
 	lcdb_dummy: regulator-lcdb-dummy {
 		compatible = "regulator-fixed";
 		regulator-name = "lcdb_dummy";
@@ -471,6 +476,24 @@
 	status = "okay";
 };
 
+&qup_uart1_cts {
+	bias-bus-hold;
+};
+
+&qup_uart1_rts {
+	drive-strength = <2>;
+	bias-disable;
+};
+
+&qup_uart1_rx {
+	bias-pull-up;
+};
+
+&qup_uart1_tx {
+	drive-strength = <2>;
+	bias-disable;
+};
+
 &sdhc_2 {
 	status = "okay";
 
@@ -518,6 +541,30 @@
 &tlmm {
 	gpio-reserved-ranges = <13 4>, <56 2>;
 
+	qup_uart1_sleep_cts: qup-uart1-sleep-cts-state {
+		pins = "gpio61";
+		function = "gpio";
+		bias-bus-hold;
+	};
+
+	qup_uart1_sleep_rts: qup-uart1-sleep-rts-state {
+		pins = "gpio62";
+		function = "gpio";
+		bias-pull-down;
+	};
+
+	qup_uart1_sleep_rx: qup-uart1-sleep-rx-state {
+		pins = "gpio64";
+		function = "gpio";
+		bias-pull-up;
+	};
+
+	qup_uart1_sleep_tx: qup-uart1-sleep-tx-state {
+		pins = "gpio63";
+		function = "gpio";
+		bias-pull-up;
+	};
+
 	te_gpio: te-default-state {
 		pins = "gpio23";
 		function = "mdp_vsync";
@@ -563,6 +610,31 @@
 	};
 };
 
+&uart1 {
+	/delete-property/ interrupts;
+	interrupts-extended = <&intc GIC_SPI 602 IRQ_TYPE_LEVEL_HIGH>,
+			      <&tlmm 64 IRQ_TYPE_EDGE_FALLING>;
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-1 = <&qup_uart1_sleep_cts>, <&qup_uart1_sleep_rts>,
+		    <&qup_uart1_sleep_tx>, <&qup_uart1_sleep_rx>;
+
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn3991-bt";
+		vddio-supply = <&vreg_l11a>;
+		vddxo-supply = <&vreg_l7a>;
+		vddrf-supply = <&vreg_l2e>;
+		vddch0-supply = <&vreg_l10e>;
+		swctrl-gpios = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&uart9 {
+	status = "okay";
+};
+
 &ufs_mem_hc {
 	status = "okay";
 };
@@ -585,5 +657,9 @@
 };
 
 &usb_1_qmpphy {
+	status = "okay";
+};
+
+&wifi {
 	status = "okay";
 };
